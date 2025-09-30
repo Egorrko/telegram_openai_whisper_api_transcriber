@@ -22,6 +22,9 @@ bot_name = os.environ.get('BOT_NAME')
 telegram_bot_api_url = os.environ.get('TELEGRAM_BOT_API_URL')
 transcription_engine = os.environ.get('TRANSCRIPTION_ENGINE', 'openai')
 available_seconds = int(os.environ.get('AVAILABLE_MINUTES')) * 60
+group_ids = list(map(lambda x: -(1000000000000 + int(x)), os.environ.get('GROUP_IDS').split(',')))
+
+
 
 
 async def start(update: Update, context: CallbackContext) -> None:
@@ -89,17 +92,20 @@ def main():
 
     start_handler = CommandHandler('start', start)
     voice_handler = MessageHandler(filters.ChatType.PRIVATE & (filters.VOICE | filters.AUDIO), handle_voice)
+    group_handler = MessageHandler(filters.ChatType.GROUPS & (filters.VOICE | filters.AUDIO) & filters.Chat(group_ids), handle_voice)
     text_handler = CommandHandler('text', handle_command)
     mention_handler = MessageHandler(filters.ChatType.GROUPS & filters.Mention(bot_name), handle_command)
     check_available_time_handler = CommandHandler('stats', check_available_time)
 
     application.add_handler(start_handler)
     application.add_handler(voice_handler)
+    application.add_handler(group_handler)
     application.add_handler(text_handler)
     application.add_handler(mention_handler)
     application.add_handler(check_available_time_handler)
 
     application.run_polling()
+
 
 if __name__ == '__main__':
     if os.environ.get('SENTRY_DSN'):

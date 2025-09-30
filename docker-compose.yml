@@ -23,6 +23,7 @@ services:
       - BOT_NAME=${BOT_NAME}
       - TELEGRAM_BOT_API_URL=${TELEGRAM_BOT_API_URL}
       - AVAILABLE_MINUTES=${AVAILABLE_MINUTES}
+      - GROUP_IDS=${GROUP_IDS}
     restart: always
     volumes:
       - telegram-bot-api-data:/var/lib/telegram-bot-api
