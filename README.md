@@ -4,12 +4,12 @@ Telegram bot to transcribe voice messages using OpenAI Whisper API or ElevenLabs
 
 ## Installation
 
-pip3 install -r requirements.txt
-sudo apt install libmagic1
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
+2. Fill .env file with correct variables.
 
 ## Running
 
-TELEGRAM_TOKEN='your telegram token here' OPENAI_API_KEY='your openai api key here' python3 src/goodsecretarybot.py
+`uv run src/goodsecretarybot.py`
 
 ## Using Docker compose (recommended way)
 

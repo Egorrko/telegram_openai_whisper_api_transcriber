@@ -9,6 +9,7 @@ dependencies = [
     "alembic>=1.16.5",
     "elevenlabs>=2.16.0",
     "openai>=2.0.1",
+    "python-dotenv>=1.1.1",
     "python-magic>=0.4.27",
     "python-telegram-bot>=22.5",
     "requests>=2.32.5",

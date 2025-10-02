@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-trixie
 
 # lint hint:
 # docker run --rm -i hadolint/hadolint < Dockerfile
@@ -11,14 +11,15 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 WORKDIR /app
 
-COPY requirements.txt requirements.txt
-
-# hadolint ignore=DL3013
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-dev
 
 COPY src/ src/
 
-CMD ["python", "src/goodsecretarybot.py"]
+CMD ["uv", "run", "src/goodsecretarybot.py"]
