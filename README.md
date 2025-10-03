@@ -26,7 +26,8 @@ You should set `TRANSCRIPTION_ENGINE` variable in .env file.
 
 Available engines:
 
-- openai
-- elevenlabs
+- `openai-whisper`
+- `openai-gpt-4o-mini-transcribe`
+- `elevenlabs-scribe_v1`
 
-Default engine is `openai`.
+Default engine is `openai-whisper`.
