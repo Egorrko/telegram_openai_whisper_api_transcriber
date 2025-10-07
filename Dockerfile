@@ -1,17 +1,10 @@
-FROM python:3.12-slim-trixie
-
-# lint hint:
-# docker run --rm -i hadolint/hadolint < Dockerfile
-#
-# rules:
-# https://github.com/hadolint/hadolint?tab=readme-ov-file#rules
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends libmagic1 && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+FROM python:3.13-slim-trixie
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -22,4 +15,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY src/ src/
 
-CMD ["uv", "run", "src/goodsecretarybot.py"]
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+ENTRYPOINT ["./entrypoint.sh"]
+
+CMD ["uv", "run", "src/manage.py", "runbot"]

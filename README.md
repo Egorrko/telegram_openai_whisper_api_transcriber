@@ -1,6 +1,6 @@
 # telegram_openai_whisper_api_transcriber
 
-Telegram bot to transcribe voice messages using OpenAI Whisper API or ElevenLabs API
+Telegram bot to transcribe voice messages using OpenAI API or ElevenLabs API
 
 ## Installation
 
@@ -9,16 +9,16 @@ Telegram bot to transcribe voice messages using OpenAI Whisper API or ElevenLabs
 
 ## Running
 
-`uv run src/goodsecretarybot.py`
+1. `uv run src/manage.py migrate`
+2. `uv run src/manage.py runbot`
 
 ## Using Docker compose (recommended way)
 
 Added local telegram-bot-api service for handling files larger than 20MB.
 
 1. `cp .env.example .env` and fill .env file with correct variables.
-2. `touch transcriptions.db` - create empty database file.
-3. `./logout.sh` - [logout](https://github.com/tdlib/telegram-bot-api#moving-a-bot-to-a-local-server) from telegram bot api server.
-4. `docker compose up -d`
+2. `./logout.sh` - [logout](https://github.com/tdlib/telegram-bot-api#moving-a-bot-to-a-local-server) from telegram bot api server.
+3. `docker compose up -d` - it will very long time to build telegram-bot-api image.
 
 ## Switch transcription engine
 
@@ -30,4 +30,4 @@ Available engines:
 - `openai-gpt-4o-mini-transcribe`
 - `elevenlabs-scribe_v1`
 
-Default engine is `openai-whisper`.
+Default engine is `openai-gpt-4o-mini-transcribe`.
