@@ -154,3 +154,5 @@ SUPPORT_USERNAME = os.environ.get("SUPPORT_USERNAME")
 AVAILABLE_SECONDS = int(os.environ.get("AVAILABLE_MINUTES")) * 60
 LEFT_WARNING_SECONDS = int(os.environ.get("LEFT_WARNING_MINUTES")) * 60
 CURRENCY_RATE_SECONDS = int(os.environ.get("CURRENCY_RATE")) * 60
+
+ALLOWED_CHAT_IDS = list(map(lambda x: -(1000000000000 + int(x)), os.environ.get('ALLOWED_CHAT_IDS').split(',')))

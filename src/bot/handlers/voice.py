@@ -71,3 +71,16 @@ async def handle_audio_reply(message: Message):
         message.reply_to_message.audio.file_id,
         message.reply_to_message.audio.mime_type,
     )
+
+@router.message(F.chat.type.in_({"group", "supergroup"}) & (F.chat.id.in_(settings.ALLOWED_CHAT_IDS)) & (F.voice))
+async def handle_group_message(message: Message):
+
+    hashed_user_id = hashlib.sha256(str(message.from_user.id).encode()).hexdigest()
+    sentry_sdk.set_user({"id": hashed_user_id})
+    await handle_audio_file(
+        message,
+        hashed_user_id,
+        message.voice.duration,
+        message.voice.file_id,
+        message.voice.mime_type,
+    )

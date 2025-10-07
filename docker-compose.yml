@@ -26,6 +26,7 @@ services:
       - AVAILABLE_MINUTES=${AVAILABLE_MINUTES}
       - LEFT_WARNING_MINUTES=${LEFT_WARNING_MINUTES}
       - CURRENCY_RATE=${CURRENCY_RATE}
+      - ALLOWED_CHAT_IDS=${ALLOWED_CHAT_IDS}
     restart: always
     volumes:
       - telegram-bot-api-data:/var/lib/telegram-bot-api
