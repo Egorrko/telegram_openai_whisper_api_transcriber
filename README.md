@@ -29,9 +29,11 @@ Available engines:
 - `openai-whisper`
 - `openai-gpt-4o-mini-transcribe`
 - `elevenlabs-scribe_v1`
+- `elevenlabs-scribe_v2`
 - `gemini-2.5-flash`
 - `gemini-3-flash-preview`
 - `gemini-2.5-flash-lite`
-- `gemini-3.1-flash-lite-preview`
+- `gemini-3.1-flash-lite`
+- `gemini-3.5-flash-lite`
 
-Default engine is `openai-gpt-4o-mini-transcribe`.
+Default engine is `gemini-3.5-flash-lite`.
