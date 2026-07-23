@@ -4,8 +4,11 @@ import sentry_sdk
 import os
 import subprocess
 import io
+import json
+import re
 
 from enum import StrEnum
+from dataclasses import dataclass
 from aiogram.utils.formatting import BlockQuote, Pre
 from aiogram.types import (
     InputRichMessage,
@@ -123,13 +126,96 @@ async def run_transcription(msg, audio_bytes, mime_type, set_step):
 
 
 TRANSCRIPTION_SUMMARY = "📝 Транскрипция"
+SHORT_SUMMARY_MAX_LENGTH = 80
+_JSON_FULL_PATTERN = re.compile(r'"full"\s*:\s*"((?:[^"\\]|\\.)*)', re.DOTALL)
 
 
-def _build_rich_message(text: str) -> InputRichMessage:
+@dataclass(frozen=True)
+class TranscriptionResult:
+    short: str | None
+    full: str
+
+
+def _unescape_json_string(value: str) -> str:
+    # The model may emit raw control characters (newlines, tabs) inside JSON
+    # string values, which is invalid JSON. A stray backslash before a control
+    # character is collapsed first, then bare controls are escaped for decoding.
+    value = re.sub(r"\\([\x00-\x1f])", r"\1", value)
+    escaped = re.sub(r"[\x00-\x1f]", lambda m: "\\u%04x" % ord(m.group()), value)
+    try:
+        return json.loads(f'"{escaped}"')
+    except ValueError:
+        return value
+
+
+def _extract_full_from_malformed_json(text: str) -> str | None:
+    match = _JSON_FULL_PATTERN.search(text)
+    if match is None:
+        return None
+    return _unescape_json_string(match.group(1))
+
+
+def _try_parse_transcription_json(text: str) -> TranscriptionResult | None:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+        if first_brace == -1 or last_brace <= first_brace:
+            return None
+        try:
+            data = json.loads(text[first_brace : last_brace + 1])
+        except json.JSONDecodeError:
+            return None
+
+    if not isinstance(data, dict) or not isinstance(data.get("full"), str):
+        return None
+
+    full = data["full"].strip()
+    if not full:
+        return None
+
+    short = data.get("short")
+    if not isinstance(short, str):
+        short = None
+    else:
+        short = " ".join(short.split())[:SHORT_SUMMARY_MAX_LENGTH].strip() or None
+
+    return TranscriptionResult(short=short, full=full)
+
+
+def parse_transcription_response(text: str) -> TranscriptionResult:
+    """Split the model answer into a short summary and the full transcript.
+
+    Gemini engines return JSON {"short": ..., "full": ...}; other engines
+    return plain text. Malformed JSON is salvaged field-by-field so the user
+    never sees raw JSON scaffolding.
+    """
+    stripped = text.strip()
+    result = _try_parse_transcription_json(stripped)
+    if result is not None:
+        return result
+
+    if stripped.startswith("{") and '"full"' in stripped:
+        sentry_sdk.capture_message(
+            "Malformed transcription JSON, salvaging 'full' field"
+        )
+        full = _extract_full_from_malformed_json(stripped)
+        if full:
+            return TranscriptionResult(short=None, full=full)
+
+    return TranscriptionResult(short=None, full=stripped)
+
+
+def _first_line(text: str) -> str:
+    return text.split("\n", 1)[0].strip()
+
+
+def _build_rich_message(summary: str, text: str) -> InputRichMessage:
     return InputRichMessage(
         blocks=[
             InputRichBlockDetails(
-                summary=TRANSCRIPTION_SUMMARY,
+                summary=summary,
                 blocks=[InputRichBlockParagraph(text=text)],
             )
         ]
@@ -138,21 +224,30 @@ def _build_rich_message(text: str) -> InputRichMessage:
 
 async def send_results(message, msg, transcript, set_step):
     await set_step(msg, ProcessStatus.SENDING, notify_user=False)
-    chunk_size = settings.MAX_RICH_MESSAGE_LENGTH - len(TRANSCRIPTION_SUMMARY)
-    chunks = [
-        transcript[i : i + chunk_size] for i in range(0, len(transcript), chunk_size)
-    ]
+
+    result = parse_transcription_response(transcript)
+    full = result.full
+
+    # A one-line answer that fits a plain message needs no collapsible block.
+    if "\n" not in full and len(full) <= settings.MAX_MESSAGE_LENGTH:
+        await msg.edit_text(full)
+        return
+
+    summary = result.short or _first_line(full)[:SHORT_SUMMARY_MAX_LENGTH]
+    summary = summary or TRANSCRIPTION_SUMMARY
+    chunk_size = settings.MAX_RICH_MESSAGE_LENGTH - len(summary)
+    chunks = [full[i : i + chunk_size] for i in range(0, len(full), chunk_size)]
 
     await bot.edit_message_text(
         chat_id=msg.chat.id,
         message_id=msg.message_id,
-        rich_message=_build_rich_message(chunks[0]),
+        rich_message=_build_rich_message(summary, chunks[0]),
     )
 
     for chunk in chunks[1:]:
         await bot.send_rich_message(
             chat_id=message.chat.id,
-            rich_message=_build_rich_message(chunk),
+            rich_message=_build_rich_message(summary, chunk),
             reply_parameters=message.as_reply_parameters(),
         )
 

@@ -86,14 +86,16 @@ class Gemini25FlashTranscribeTS(TranscriptionService):
         self.client = genai.Client()
 
     async def transcribe(self, file_data: io.BytesIO, mime_type: str) -> str:
-        from google.genai.types import UploadFileConfig
+        from google.genai.types import GenerateContentConfig, UploadFileConfig
 
         file = await self.client.aio.files.upload(
             file=file_data, config=UploadFileConfig(mime_type=mime_type)
         )
         prompt = settings.GEMINI_PROMPT
         response = await self.client.aio.models.generate_content(
-            model="gemini-2.5-flash", contents=[prompt, file]
+            model="gemini-2.5-flash",
+            contents=[prompt, file],
+            config=GenerateContentConfig(response_mime_type="application/json"),
         )
         if not response.text:
             raise Exception(response)
@@ -111,14 +113,16 @@ class Gemini3FlashTranscribeTS(TranscriptionService):
         self.client = genai.Client()
 
     async def transcribe(self, file_data: io.BytesIO, mime_type: str) -> str:
-        from google.genai.types import UploadFileConfig
+        from google.genai.types import GenerateContentConfig, UploadFileConfig
 
         file = await self.client.aio.files.upload(
             file=file_data, config=UploadFileConfig(mime_type=mime_type)
         )
         prompt = settings.GEMINI_PROMPT
         response = await self.client.aio.models.generate_content(
-            model="gemini-3-flash-preview", contents=[prompt, file]
+            model="gemini-3-flash-preview",
+            contents=[prompt, file],
+            config=GenerateContentConfig(response_mime_type="application/json"),
         )
         if not response.text:
             raise Exception(response)
@@ -136,14 +140,16 @@ class Gemini25FlashLiteTranscribeTS(TranscriptionService):
         self.client = genai.Client()
 
     async def transcribe(self, file_data: io.BytesIO, mime_type: str) -> str:
-        from google.genai.types import UploadFileConfig
+        from google.genai.types import GenerateContentConfig, UploadFileConfig
 
         file = await self.client.aio.files.upload(
             file=file_data, config=UploadFileConfig(mime_type=mime_type)
         )
         prompt = settings.GEMINI_PROMPT
         response = await self.client.aio.models.generate_content(
-            model="gemini-2.5-flash-lite", contents=[prompt, file]
+            model="gemini-2.5-flash-lite",
+            contents=[prompt, file],
+            config=GenerateContentConfig(response_mime_type="application/json"),
         )
         if not response.text:
             raise Exception(response)
@@ -161,14 +167,16 @@ class Gemini31FlashLiteTranscribeTS(TranscriptionService):
         self.client = genai.Client()
 
     async def transcribe(self, file_data: io.BytesIO, mime_type: str) -> str:
-        from google.genai.types import UploadFileConfig
+        from google.genai.types import GenerateContentConfig, UploadFileConfig
 
         file = await self.client.aio.files.upload(
             file=file_data, config=UploadFileConfig(mime_type=mime_type)
         )
         prompt = settings.GEMINI_PROMPT
         response = await self.client.aio.models.generate_content(
-            model="gemini-3.1-flash-lite", contents=[prompt, file]
+            model="gemini-3.1-flash-lite",
+            contents=[prompt, file],
+            config=GenerateContentConfig(response_mime_type="application/json"),
         )
         if not response.text:
             raise Exception(response)
@@ -186,14 +194,16 @@ class Gemini35FlashLiteTranscribeTS(TranscriptionService):
         self.client = genai.Client()
 
     async def transcribe(self, file_data: io.BytesIO, mime_type: str) -> str:
-        from google.genai.types import UploadFileConfig
+        from google.genai.types import GenerateContentConfig, UploadFileConfig
 
         file = await self.client.aio.files.upload(
             file=file_data, config=UploadFileConfig(mime_type=mime_type)
         )
         prompt = settings.GEMINI_PROMPT
         response = await self.client.aio.models.generate_content(
-            model="gemini-3.5-flash-lite", contents=[prompt, file]
+            model="gemini-3.5-flash-lite",
+            contents=[prompt, file],
+            config=GenerateContentConfig(response_mime_type="application/json"),
         )
         if not response.text:
             raise Exception(response)

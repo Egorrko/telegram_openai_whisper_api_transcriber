@@ -142,9 +142,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_BOT_API_URL = os.environ.get("TELEGRAM_BOT_API_URL")
 SENTRY_DSN = os.environ.get("SENTRY_DSN")
 
-TRANSCRIPTION_ENGINE = os.environ.get(
-    "TRANSCRIPTION_ENGINE", "gemini-3.5-flash-lite"
-)
+TRANSCRIPTION_ENGINE = os.environ.get("TRANSCRIPTION_ENGINE", "gemini-3.5-flash-lite")
 FALLBACK_TRANSCRIPTION_ENGINE = os.environ.get("FALLBACK_TRANSCRIPTION_ENGINE")
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -277,19 +275,31 @@ Place the emoji after the relevant phrase.
 
 SPECIAL CASES
 
-For complete silence or audio containing only indistinct static, output exactly:
+For complete silence or audio containing only indistinct static, the "full" field must be exactly:
 
 [Тишина]
 
-For audio without speech but with a recognizable sound, output a concise description:
+For audio without speech but with a recognizable sound, the "full" field must be a concise description, e.g.:
 
 [Шум ветра и далёкий лай собаки]
 
 OUTPUT
 
-The response consists only of the finished transcript in plain text.
+Respond with a single JSON object and nothing else:
 
-Begin immediately with the transcript.
+{"short": "<one-line summary>", "full": "<complete transcript>"}
+
+Rules for "short":
+* one line, up to 10 words;
+* the essence of the message, in the language of the speech;
+* no quotes, no trailing punctuation;
+* for silence or noise only: "Тишина" or a brief noise description.
+
+Rules for "full":
+* the complete transcript exactly as described in the sections above;
+* for complete silence: "[Тишина]".
+
+Do not wrap the JSON in markdown, code blocks, or comments.
 
 Input Audio:
 [Audio File]

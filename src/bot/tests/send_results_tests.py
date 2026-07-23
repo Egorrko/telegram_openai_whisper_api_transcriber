@@ -1,16 +1,14 @@
+import json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bot.services.file_processor import (
     ProcessStatus,
-    TRANSCRIPTION_SUMMARY,
+    parse_transcription_response,
     send_results,
 )
 from config import settings
-
-pytestmark = pytest.mark.asyncio
-
-CHUNK_SIZE = settings.MAX_RICH_MESSAGE_LENGTH - len(TRANSCRIPTION_SUMMARY)
 
 
 def _make_message_and_msg():
@@ -20,7 +18,12 @@ def _make_message_and_msg():
     msg = MagicMock()
     msg.chat.id = 111
     msg.message_id = 42
+    msg.edit_text = AsyncMock()
     return message, msg
+
+
+def _json_response(short, full):
+    return json.dumps({"short": short, "full": full}, ensure_ascii=False)
 
 
 def _extract_details(rich_message):
@@ -49,14 +52,112 @@ def _total_rich_text_length(rich_message):
     return total
 
 
+# --- parse_transcription_response -------------------------------------------
+
+
+def test_parse_valid_json():
+    result = parse_transcription_response(_json_response("Суть", "полный\nтекст"))
+    assert result.short == "Суть"
+    assert result.full == "полный\nтекст"
+
+
+def test_parse_json_with_surrounding_text():
+    raw = "Вот результат:\n" + _json_response("Суть", "текст") + "\nГотово."
+    result = parse_transcription_response(raw)
+    assert result.short == "Суть"
+    assert result.full == "текст"
+
+
+def test_parse_malformed_json_with_literal_newlines():
+    # Flash-lite models may emit raw newlines inside string values, which is
+    # invalid JSON. The "full" field must still be salvaged.
+    raw = '{"short": "Тест",\n"full": "абзац один\nабзац два"}'
+    result = parse_transcription_response(raw)
+    assert result.full == "абзац один\nабзац два"
+
+
+def test_parse_malformed_json_backslash_before_newline():
+    # A backslash immediately followed by a literal newline must not stop
+    # the salvage capture early (re.DOTALL coverage).
+    raw = '{"short": "Тест", "full": "первая \\\nвторая"}'
+    result = parse_transcription_response(raw)
+    assert result.full == "первая \nвторая"
+
+
+def test_parse_plain_text_passthrough():
+    result = parse_transcription_response("Просто текст\nв две строки")
+    assert result.short is None
+    assert result.full == "Просто текст\nв две строки"
+
+
+def test_parse_json_escapes():
+    raw = _json_response("Суть", 'строка с "кавычками" и \\обратным слэшем\\')
+    result = parse_transcription_response(raw)
+    assert result.full == 'строка с "кавычками" и \\обратным слэшем\\'
+
+
+# --- send_results: plain text for one-line answers ---------------------------
+
+
+@pytest.mark.asyncio
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
-async def test_short_transcription_rich_message(mock_bot):
-    """Short transcript: one edit_message_text with Rich Message details block."""
+async def test_json_single_line_full_plain_text(mock_bot):
+    """One-line full answer: plain edit_text, no collapsible block."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    transcript = "Привет, мир! Это короткая транскрипция."
 
-    await send_results(message, msg, transcript, set_step)
+    await send_results(message, msg, _json_response("Привет", "Привет, мир!"), set_step)
+
+    msg.edit_text.assert_awaited_once_with("Привет, мир!")
+    mock_bot.edit_message_text.assert_not_awaited()
+    mock_bot.send_rich_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@patch("bot.services.file_processor.bot", new_callable=AsyncMock)
+async def test_plain_text_single_line_plain_text(mock_bot):
+    """Non-JSON one-line transcript (other engines): plain edit_text."""
+    message, msg = _make_message_and_msg()
+    set_step = AsyncMock()
+
+    await send_results(message, msg, "Короткий ответ.", set_step)
+
+    msg.edit_text.assert_awaited_once_with("Короткий ответ.")
+    mock_bot.edit_message_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@patch("bot.services.file_processor.bot", new_callable=AsyncMock)
+async def test_long_single_line_uses_rich_message(mock_bot):
+    """Single line longer than MAX_MESSAGE_LENGTH: rich message, not truncated."""
+    message, msg = _make_message_and_msg()
+    set_step = AsyncMock()
+    full = "а" * (settings.MAX_MESSAGE_LENGTH + 1)
+
+    await send_results(message, msg, _json_response("Длинно", full), set_step)
+
+    msg.edit_text.assert_not_awaited()
+    mock_bot.edit_message_text.assert_awaited_once()
+    details = _extract_details(
+        mock_bot.edit_message_text.call_args.kwargs["rich_message"]
+    )
+    assert _extract_paragraph_text(details) == full
+
+
+# --- send_results: collapsible for multi-line answers ------------------------
+
+
+@pytest.mark.asyncio
+@patch("bot.services.file_processor.bot", new_callable=AsyncMock)
+async def test_json_multiline_collapsible_with_short_summary(mock_bot):
+    """Multi-line full: collapsible details with the short answer as summary."""
+    message, msg = _make_message_and_msg()
+    set_step = AsyncMock()
+    full = "Первая строка.\nВторая строка."
+
+    await send_results(
+        message, msg, _json_response("Коротко о встрече", full), set_step
+    )
 
     set_step.assert_awaited_once_with(msg, ProcessStatus.SENDING, notify_user=False)
 
@@ -65,146 +166,109 @@ async def test_short_transcription_rich_message(mock_bot):
     assert edit_kwargs["chat_id"] == msg.chat.id
     assert edit_kwargs["message_id"] == msg.message_id
 
-    rich = edit_kwargs["rich_message"]
-    details = _extract_details(rich)
-    assert details.summary == TRANSCRIPTION_SUMMARY
+    details = _extract_details(edit_kwargs["rich_message"])
+    assert details.summary == "Коротко о встрече"
     assert details.is_open is None
-    assert _extract_paragraph_text(details) == transcript
+    assert _extract_paragraph_text(details) == full
 
     mock_bot.send_rich_message.assert_not_awaited()
 
 
+@pytest.mark.asyncio
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
-async def test_exact_boundary_single_message(mock_bot):
-    """Transcript of exactly CHUNK_SIZE: one edit, no overflow, within API limit."""
+async def test_plain_text_multiline_derived_summary(mock_bot):
+    """Plain-text engine output: summary derived from the first line."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    transcript = "a" * CHUNK_SIZE
+    transcript = "Первая строка\nВторая строка"
 
     await send_results(message, msg, transcript, set_step)
 
-    mock_bot.edit_message_text.assert_awaited_once()
-    rich = mock_bot.edit_message_text.call_args.kwargs["rich_message"]
-    details = _extract_details(rich)
-    assert _extract_paragraph_text(details) == transcript
-    assert _total_rich_text_length(rich) <= settings.MAX_RICH_MESSAGE_LENGTH
-
-    mock_bot.send_rich_message.assert_not_awaited()
-
-
-@patch("bot.services.file_processor.bot", new_callable=AsyncMock)
-async def test_overflow_multi_chunk(mock_bot):
-    """Transcript spanning 3 chunks: one edit + two send_rich_message calls."""
-    message, msg = _make_message_and_msg()
-    set_step = AsyncMock()
-    transcript = "x" * CHUNK_SIZE + "y" * CHUNK_SIZE + "z" * 100
-
-    await send_results(message, msg, transcript, set_step)
-
-    # First chunk: in-place edit
-    mock_bot.edit_message_text.assert_awaited_once()
-    edit_rich = mock_bot.edit_message_text.call_args.kwargs["rich_message"]
-    edit_details = _extract_details(edit_rich)
-    assert _extract_paragraph_text(edit_details) == "x" * CHUNK_SIZE
-
-    # Overflow chunks: send_rich_message
-    assert mock_bot.send_rich_message.await_count == 2
-
-    first_send = mock_bot.send_rich_message.call_args_list[0].kwargs
-    second_send = mock_bot.send_rich_message.call_args_list[1].kwargs
-
-    first_details = _extract_details(first_send["rich_message"])
-    second_details = _extract_details(second_send["rich_message"])
-
-    assert _extract_paragraph_text(first_details) == "y" * CHUNK_SIZE
-    assert _extract_paragraph_text(second_details) == "z" * 100
-
-    # All overflow messages reply to the original message
-    assert first_send["chat_id"] == message.chat.id
-    assert second_send["chat_id"] == message.chat.id
-    assert first_send["reply_parameters"] == "reply_params_stub"
-    assert second_send["reply_parameters"] == "reply_params_stub"
-
-    # Reconstruction
-    reconstructed = (
-        _extract_paragraph_text(edit_details)
-        + _extract_paragraph_text(first_details)
-        + _extract_paragraph_text(second_details)
+    details = _extract_details(
+        mock_bot.edit_message_text.call_args.kwargs["rich_message"]
     )
-    assert reconstructed == transcript
+    assert details.summary == "Первая строка"
+    assert _extract_paragraph_text(details) == transcript
 
 
+@pytest.mark.asyncio
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
-async def test_overflow_boundary_plus_one(mock_bot):
-    """Transcript of CHUNK_SIZE + 1: exactly two messages."""
+async def test_missing_short_falls_back_to_first_line(mock_bot):
+    """JSON without a usable short: summary derived from the first line."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    transcript = "b" * (CHUNK_SIZE + 1)
+    raw = json.dumps({"full": "Заголовок\nтело"}, ensure_ascii=False)
 
-    await send_results(message, msg, transcript, set_step)
+    await send_results(message, msg, raw, set_step)
 
-    mock_bot.edit_message_text.assert_awaited_once()
-    assert mock_bot.send_rich_message.await_count == 1
-
-    edit_rich = mock_bot.edit_message_text.call_args.kwargs["rich_message"]
-    send_rich = mock_bot.send_rich_message.call_args.kwargs["rich_message"]
-
-    edit_text = _extract_paragraph_text(_extract_details(edit_rich))
-    send_text = _extract_paragraph_text(_extract_details(send_rich))
-
-    assert edit_text == "b" * CHUNK_SIZE
-    assert send_text == "b"
-    assert edit_text + send_text == transcript
+    details = _extract_details(
+        mock_bot.edit_message_text.call_args.kwargs["rich_message"]
+    )
+    assert details.summary == "Заголовок"
 
 
+# --- send_results: chunking ---------------------------------------------------
+
+
+@pytest.mark.asyncio
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
-async def test_unicode_boundary(mock_bot):
-    """Cyrillic and emoji across chunk boundary: exact reconstruction."""
+async def test_long_summary_chunks_within_rich_limit(mock_bot):
+    """Chunk size accounts for the actual (long) summary length."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
+    summary = "Очень длинное краткое описание " * 3  # 93 chars -> capped to 80
+    summary = summary.strip()[:80]
+    chunk_size = settings.MAX_RICH_MESSAGE_LENGTH - len(summary)
+    full = ("а" * (chunk_size - 1) + "\n") * 3 + "хвост"
 
-    # Place multibyte chars right at the boundary
-    prefix = "а" * (CHUNK_SIZE - 2)  # 2 chars before boundary
-    boundary_chars = "🎤т"  # emoji (4 bytes UTF-8) + Cyrillic (2 bytes)
-    suffix = "б" * 50
-    transcript = prefix + boundary_chars + suffix
-
-    await send_results(message, msg, transcript, set_step)
-
-    edit_rich = mock_bot.edit_message_text.call_args.kwargs["rich_message"]
-    edit_text = _extract_paragraph_text(_extract_details(edit_rich))
-    assert edit_text == transcript[:CHUNK_SIZE]
-
-    assert mock_bot.send_rich_message.await_count == 1
-    send_rich = mock_bot.send_rich_message.call_args.kwargs["rich_message"]
-    send_text = _extract_paragraph_text(_extract_details(send_rich))
-    assert send_text == transcript[CHUNK_SIZE:]
-
-    assert edit_text + send_text == transcript
-
-
-@patch("bot.services.file_processor.bot", new_callable=AsyncMock)
-async def test_all_chunks_within_rich_limit(mock_bot):
-    """Every rich message's total text (summary + paragraph) fits API limit."""
-    message, msg = _make_message_and_msg()
-    set_step = AsyncMock()
-    transcript = "d" * (CHUNK_SIZE * 3 + 500)
-
-    await send_results(message, msg, transcript, set_step)
+    await send_results(message, msg, _json_response(summary, full), set_step)
 
     all_rich = [mock_bot.edit_message_text.call_args.kwargs["rich_message"]]
     all_rich += [
         c.kwargs["rich_message"] for c in mock_bot.send_rich_message.call_args_list
     ]
 
-    all_texts = []
+    reconstructed = []
     for rich in all_rich:
         assert _total_rich_text_length(rich) <= settings.MAX_RICH_MESSAGE_LENGTH
-        all_texts.append(_extract_paragraph_text(_extract_details(rich)))
+        details = _extract_details(rich)
+        assert details.summary == summary
+        reconstructed.append(_extract_paragraph_text(details))
 
-    assert "".join(all_texts) == transcript
+    assert "".join(reconstructed) == full
+    assert len(all_rich) == 4
 
 
+@pytest.mark.asyncio
+@patch("bot.services.file_processor.bot", new_callable=AsyncMock)
+async def test_overflow_multi_chunk_reconstruction(mock_bot):
+    """Multi-chunk transcript: one edit + sends, exact reconstruction."""
+    message, msg = _make_message_and_msg()
+    set_step = AsyncMock()
+    summary = "Суть"
+    chunk_size = settings.MAX_RICH_MESSAGE_LENGTH - len(summary)
+    full = "x" * chunk_size + "\n" + "y" * chunk_size + "\n" + "z" * 100
+
+    await send_results(message, msg, _json_response(summary, full), set_step)
+
+    mock_bot.edit_message_text.assert_awaited_once()
+    assert mock_bot.send_rich_message.await_count == 2
+
+    for call in mock_bot.send_rich_message.call_args_list:
+        assert call.kwargs["chat_id"] == message.chat.id
+        assert call.kwargs["reply_parameters"] == "reply_params_stub"
+
+    all_rich = [mock_bot.edit_message_text.call_args.kwargs["rich_message"]]
+    all_rich += [
+        c.kwargs["rich_message"] for c in mock_bot.send_rich_message.call_args_list
+    ]
+    reconstructed = "".join(
+        _extract_paragraph_text(_extract_details(rich)) for rich in all_rich
+    )
+    assert reconstructed == full
+
+
+@pytest.mark.asyncio
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
 async def test_sending_status_before_delivery(mock_bot):
     """set_step(SENDING) is called before any bot API call."""
@@ -218,7 +282,7 @@ async def test_sending_status_before_delivery(mock_bot):
         side_effect=lambda **kw: call_order.append(("edit_message_text",))
     )
 
-    transcript = "c" * 100
+    transcript = _json_response("Суть", "первая\nвторая")
     await send_results(message, msg, transcript, tracking_set_step)
 
     assert call_order[0] == ("set_step", ProcessStatus.SENDING)
