@@ -7,6 +7,11 @@ import io
 
 from enum import StrEnum
 from aiogram.utils.formatting import BlockQuote, Pre
+from aiogram.types import (
+    InputRichMessage,
+    InputRichBlockDetails,
+    InputRichBlockParagraph,
+)
 from bot.bot_init import bot
 from config import settings
 import bot.messages as messages
@@ -74,7 +79,7 @@ async def download_and_prep_file(msg, file_id, file_type, mime_type, set_step):
         await set_step(msg, ProcessStatus.CONVERT)
         audio_bytes, new_mime_type = await convert_video_to_audio(file)
         return file_info, audio_bytes, new_mime_type
-    
+
     return file_info, file, mime_type
 
 
@@ -87,9 +92,7 @@ async def run_transcription(msg, audio_bytes, mime_type, set_step):
     await set_step(msg, ProcessStatus.TRANSCRIBE)
     while retries < settings.MAX_RETRIES:
         try:
-            transcript = await transcription_client.transcribe(
-                audio_bytes, mime_type
-            )
+            transcript = await transcription_client.transcribe(audio_bytes, mime_type)
             return transcript, time.time() - start_time
         except Exception as e:
             audio_bytes.seek(0)
@@ -121,22 +124,37 @@ async def run_transcription(msg, audio_bytes, mime_type, set_step):
 
 async def send_results(message, msg, transcript, set_step):
     await set_step(msg, ProcessStatus.SENDING, notify_user=False)
-    if len(transcript) > settings.MAX_MESSAGE_LENGTH:
-        await msg.edit_text(
-            **BlockQuote(transcript[: settings.MAX_MESSAGE_LENGTH]).as_kwargs()
-        )
-        for i in range(
-            settings.MAX_MESSAGE_LENGTH,
-            len(transcript),
-            settings.MAX_MESSAGE_LENGTH,
-        ):
-            await message.reply(
-                **BlockQuote(
-                    transcript[i : i + settings.MAX_MESSAGE_LENGTH]
-                ).as_kwargs()
+    limit = settings.MAX_RICH_MESSAGE_LENGTH
+    chunks = [transcript[i : i + limit] for i in range(0, len(transcript), limit)]
+
+    first_rich = InputRichMessage(
+        blocks=[
+            InputRichBlockDetails(
+                summary="📝 Транскрипция",
+                blocks=[InputRichBlockParagraph(text=chunks[0])],
             )
-    else:
-        await msg.edit_text(**BlockQuote(transcript).as_kwargs())
+        ]
+    )
+    await bot.edit_message_text(
+        chat_id=msg.chat.id,
+        message_id=msg.message_id,
+        rich_message=first_rich,
+    )
+
+    for chunk in chunks[1:]:
+        rich = InputRichMessage(
+            blocks=[
+                InputRichBlockDetails(
+                    summary="📝 Транскрипция",
+                    blocks=[InputRichBlockParagraph(text=chunk)],
+                )
+            ]
+        )
+        await bot.send_rich_message(
+            chat_id=message.chat.id,
+            rich_message=rich,
+            reply_parameters=message.as_reply_parameters(),
+        )
 
 
 async def handle_file(
@@ -157,7 +175,9 @@ async def handle_file(
 
     msg = None
     try:
-        user, should_continue = await check_user_limits(message, hashed_user_id, file_duration)
+        user, should_continue = await check_user_limits(
+            message, hashed_user_id, file_duration
+        )
         if not should_continue:
             return
 
@@ -177,7 +197,7 @@ async def handle_file(
         await db.insert_transcription_log(user, file_duration, transcription_time)
     except Exception as e:
         error_text = str(e) if str(e) else f"{type(e).__name__}"
-        
+
         if msg:
             await msg.edit_text(
                 **Pre(
@@ -187,14 +207,14 @@ async def handle_file(
                 ).as_kwargs()
             )
         else:
-             # Fallback if msg wasn't created yet
-             await message.reply(
+            # Fallback if msg wasn't created yet
+            await message.reply(
                 **Pre(
-                     f"Ошибочка ({current_step}):\n{error_text}"[
+                    f"Ошибочка ({current_step}):\n{error_text}"[
                         : settings.MAX_MESSAGE_LENGTH
                     ]
                 ).as_kwargs()
-             )
+            )
 
         sentry_sdk.set_context("pipeline", {"step": current_step})
         sentry_sdk.capture_exception(e)

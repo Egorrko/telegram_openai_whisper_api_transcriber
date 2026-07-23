@@ -136,6 +136,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 load_dotenv()
 
 MAX_MESSAGE_LENGTH = 4096
+MAX_RICH_MESSAGE_LENGTH = 32768
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_BOT_API_URL = os.environ.get("TELEGRAM_BOT_API_URL")
