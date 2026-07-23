@@ -96,7 +96,7 @@ def test_parse_json_escapes():
     assert result.full == 'строка с "кавычками" и \\обратным слэшем\\'
 
 
-# --- send_results: plain text for one-line answers ---------------------------
+# --- send_results: plain text for short answers ------------------------------
 
 
 @pytest.mark.asyncio
@@ -144,16 +144,16 @@ async def test_long_single_line_uses_rich_message(mock_bot):
     assert _extract_paragraph_text(details) == full
 
 
-# --- send_results: collapsible for multi-line answers ------------------------
+# --- send_results: collapsible for long answers ------------------------------
 
 
 @pytest.mark.asyncio
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
 async def test_json_multiline_collapsible_with_short_summary(mock_bot):
-    """Multi-line full: collapsible details with the short answer as summary."""
+    """Long full: collapsible details with the short answer as summary."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    full = "Первая строка.\nВторая строка."
+    full = "Первая строка.\n" + "Вторая строка. " * 20 + "Конец."
 
     await send_results(
         message, msg, _json_response("Коротко о встрече", full), set_step
@@ -176,11 +176,30 @@ async def test_json_multiline_collapsible_with_short_summary(mock_bot):
 
 @pytest.mark.asyncio
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
+async def test_long_single_line_json_collapsible(mock_bot):
+    """~300-char single-line transcript (one-paragraph voice): collapsible."""
+    message, msg = _make_message_and_msg()
+    set_step = AsyncMock()
+    full = "Короче, это тестирование новой версии бота. " * 7 + "Вот так."
+
+    await send_results(message, msg, _json_response("Тест бота", full), set_step)
+
+    msg.edit_text.assert_not_awaited()
+    mock_bot.edit_message_text.assert_awaited_once()
+    details = _extract_details(
+        mock_bot.edit_message_text.call_args.kwargs["rich_message"]
+    )
+    assert details.summary == "Тест бота"
+    assert _extract_paragraph_text(details) == full
+
+
+@pytest.mark.asyncio
+@patch("bot.services.file_processor.bot", new_callable=AsyncMock)
 async def test_plain_text_multiline_derived_summary(mock_bot):
     """Plain-text engine output: summary derived from the first line."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    transcript = "Первая строка\nВторая строка"
+    transcript = "Первая строка\n" + "много текста " * 20 + "конец"
 
     await send_results(message, msg, transcript, set_step)
 
@@ -197,7 +216,8 @@ async def test_missing_short_falls_back_to_first_line(mock_bot):
     """JSON without a usable short: summary derived from the first line."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    raw = json.dumps({"full": "Заголовок\nтело"}, ensure_ascii=False)
+    full = "Заголовок\n" + "тело сообщения " * 20  # > PLAIN_TEXT_MAX_LENGTH
+    raw = json.dumps({"full": full}, ensure_ascii=False)
 
     await send_results(message, msg, raw, set_step)
 

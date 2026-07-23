@@ -127,6 +127,7 @@ async def run_transcription(msg, audio_bytes, mime_type, set_step):
 
 TRANSCRIPTION_SUMMARY = "📝 Транскрипция"
 SHORT_SUMMARY_MAX_LENGTH = 80
+PLAIN_TEXT_MAX_LENGTH = 200
 _JSON_FULL_PATTERN = re.compile(r'"full"\s*:\s*"((?:[^"\\]|\\.)*)', re.DOTALL)
 
 
@@ -228,8 +229,9 @@ async def send_results(message, msg, transcript, set_step):
     result = parse_transcription_response(transcript)
     full = result.full
 
-    # A one-line answer that fits a plain message needs no collapsible block.
-    if "\n" not in full and len(full) <= settings.MAX_MESSAGE_LENGTH:
+    # Short answers are shown as plain text; longer ones go into a collapsible
+    # block with the short summary as its header.
+    if len(full) <= PLAIN_TEXT_MAX_LENGTH:
         await msg.edit_text(full)
         return
 
