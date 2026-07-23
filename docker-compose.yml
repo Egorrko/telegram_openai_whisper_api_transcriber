@@ -1,9 +1,6 @@
 services:
   telegram-bot-api:
-    build: 
-      context: telegram-bot-api
-      args:
-        - BUILD_CPU_COUNT=${BUILD_CPU_COUNT}
+    image: aiogram/telegram-bot-api:10.2
     env_file: 
       - .env
     environment:

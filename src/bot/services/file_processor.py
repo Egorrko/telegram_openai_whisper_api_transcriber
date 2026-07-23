@@ -4,9 +4,18 @@ import sentry_sdk
 import os
 import subprocess
 import io
+import json
+import re
 
 from enum import StrEnum
+from dataclasses import dataclass
 from aiogram.utils.formatting import BlockQuote, Pre
+from aiogram.types import (
+    InputRichMessage,
+    InputRichBlockDetails,
+    InputRichBlockParagraph,
+    InputRichBlockBlockQuotation,
+)
 from bot.bot_init import bot
 from config import settings
 import bot.messages as messages
@@ -74,7 +83,7 @@ async def download_and_prep_file(msg, file_id, file_type, mime_type, set_step):
         await set_step(msg, ProcessStatus.CONVERT)
         audio_bytes, new_mime_type = await convert_video_to_audio(file)
         return file_info, audio_bytes, new_mime_type
-    
+
     return file_info, file, mime_type
 
 
@@ -87,9 +96,7 @@ async def run_transcription(msg, audio_bytes, mime_type, set_step):
     await set_step(msg, ProcessStatus.TRANSCRIBE)
     while retries < settings.MAX_RETRIES:
         try:
-            transcript = await transcription_client.transcribe(
-                audio_bytes, mime_type
-            )
+            transcript = await transcription_client.transcribe(audio_bytes, mime_type)
             return transcript, time.time() - start_time
         except Exception as e:
             audio_bytes.seek(0)
@@ -119,24 +126,143 @@ async def run_transcription(msg, audio_bytes, mime_type, set_step):
         raise Exception(error_text)
 
 
+TRANSCRIPTION_SUMMARY = "📝 Транскрипция"
+SHORT_SUMMARY_MAX_LENGTH = 80
+PLAIN_TEXT_MAX_LENGTH = 200
+_JSON_FULL_PATTERN = re.compile(r'"full"\s*:\s*"((?:[^"\\]|\\.)*)', re.DOTALL)
+
+
+@dataclass(frozen=True)
+class TranscriptionResult:
+    short: str | None
+    full: str
+
+
+def _unescape_json_string(value: str) -> str:
+    # The model may emit raw control characters (newlines, tabs) inside JSON
+    # string values, which is invalid JSON. A stray backslash before a control
+    # character is collapsed first, then bare controls are escaped for decoding.
+    value = re.sub(r"\\([\x00-\x1f])", r"\1", value)
+    escaped = re.sub(r"[\x00-\x1f]", lambda m: "\\u%04x" % ord(m.group()), value)
+    try:
+        return json.loads(f'"{escaped}"')
+    except ValueError:
+        return value
+
+
+def _extract_full_from_malformed_json(text: str) -> str | None:
+    match = _JSON_FULL_PATTERN.search(text)
+    if match is None:
+        return None
+    return _unescape_json_string(match.group(1))
+
+
+def _try_parse_transcription_json(text: str) -> TranscriptionResult | None:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+        if first_brace == -1 or last_brace <= first_brace:
+            return None
+        try:
+            data = json.loads(text[first_brace : last_brace + 1])
+        except json.JSONDecodeError:
+            return None
+
+    if not isinstance(data, dict) or not isinstance(data.get("full"), str):
+        return None
+
+    full = data["full"].strip()
+    if not full:
+        return None
+
+    short = data.get("short")
+    if not isinstance(short, str):
+        short = None
+    else:
+        short = " ".join(short.split())[:SHORT_SUMMARY_MAX_LENGTH].strip() or None
+
+    return TranscriptionResult(short=short, full=full)
+
+
+def parse_transcription_response(text: str) -> TranscriptionResult:
+    """Split the model answer into a short summary and the full transcript.
+
+    Gemini engines return JSON {"short": ..., "full": ...}; other engines
+    return plain text. Malformed JSON is salvaged field-by-field so the user
+    never sees raw JSON scaffolding.
+    """
+    stripped = text.strip()
+    result = _try_parse_transcription_json(stripped)
+    if result is not None:
+        return result
+
+    if stripped.startswith("{") and '"full"' in stripped:
+        sentry_sdk.capture_message(
+            "Malformed transcription JSON, salvaging 'full' field"
+        )
+        full = _extract_full_from_malformed_json(stripped)
+        if full:
+            return TranscriptionResult(short=None, full=full)
+
+    return TranscriptionResult(short=None, full=stripped)
+
+
+def _first_line(text: str) -> str:
+    return text.split("\n", 1)[0].strip()
+
+
+def _build_rich_message(summary: str, text: str) -> InputRichMessage:
+    return InputRichMessage(
+        blocks=[
+            InputRichBlockDetails(
+                summary=summary,
+                blocks=[InputRichBlockParagraph(text=text)],
+            )
+        ]
+    )
+
+
 async def send_results(message, msg, transcript, set_step):
     await set_step(msg, ProcessStatus.SENDING, notify_user=False)
-    if len(transcript) > settings.MAX_MESSAGE_LENGTH:
-        await msg.edit_text(
-            **BlockQuote(transcript[: settings.MAX_MESSAGE_LENGTH]).as_kwargs()
+
+    result = parse_transcription_response(transcript)
+    full = result.full
+
+    # Short answers are shown as a block quotation; longer ones go into a
+    # collapsible block with the short summary as its header.
+    if len(full) <= PLAIN_TEXT_MAX_LENGTH:
+        await bot.edit_message_text(
+            chat_id=msg.chat.id,
+            message_id=msg.message_id,
+            rich_message=InputRichMessage(
+                blocks=[
+                    InputRichBlockBlockQuotation(
+                        blocks=[InputRichBlockParagraph(text=full)]
+                    )
+                ]
+            ),
         )
-        for i in range(
-            settings.MAX_MESSAGE_LENGTH,
-            len(transcript),
-            settings.MAX_MESSAGE_LENGTH,
-        ):
-            await message.reply(
-                **BlockQuote(
-                    transcript[i : i + settings.MAX_MESSAGE_LENGTH]
-                ).as_kwargs()
-            )
-    else:
-        await msg.edit_text(**BlockQuote(transcript).as_kwargs())
+        return
+
+    summary = result.short or _first_line(full)[:SHORT_SUMMARY_MAX_LENGTH]
+    summary = summary or TRANSCRIPTION_SUMMARY
+    chunk_size = settings.MAX_RICH_MESSAGE_LENGTH - len(summary)
+    chunks = [full[i : i + chunk_size] for i in range(0, len(full), chunk_size)]
+
+    await bot.edit_message_text(
+        chat_id=msg.chat.id,
+        message_id=msg.message_id,
+        rich_message=_build_rich_message(summary, chunks[0]),
+    )
+
+    for chunk in chunks[1:]:
+        await bot.send_rich_message(
+            chat_id=message.chat.id,
+            rich_message=_build_rich_message(summary, chunk),
+            reply_parameters=message.as_reply_parameters(),
+        )
 
 
 async def handle_file(
@@ -157,7 +283,9 @@ async def handle_file(
 
     msg = None
     try:
-        user, should_continue = await check_user_limits(message, hashed_user_id, file_duration)
+        user, should_continue = await check_user_limits(
+            message, hashed_user_id, file_duration
+        )
         if not should_continue:
             return
 
@@ -177,7 +305,7 @@ async def handle_file(
         await db.insert_transcription_log(user, file_duration, transcription_time)
     except Exception as e:
         error_text = str(e) if str(e) else f"{type(e).__name__}"
-        
+
         if msg:
             await msg.edit_text(
                 **Pre(
@@ -187,14 +315,14 @@ async def handle_file(
                 ).as_kwargs()
             )
         else:
-             # Fallback if msg wasn't created yet
-             await message.reply(
+            # Fallback if msg wasn't created yet
+            await message.reply(
                 **Pre(
-                     f"Ошибочка ({current_step}):\n{error_text}"[
+                    f"Ошибочка ({current_step}):\n{error_text}"[
                         : settings.MAX_MESSAGE_LENGTH
                     ]
                 ).as_kwargs()
-             )
+            )
 
         sentry_sdk.set_context("pipeline", {"step": current_step})
         sentry_sdk.capture_exception(e)
