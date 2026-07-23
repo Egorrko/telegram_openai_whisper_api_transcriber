@@ -122,37 +122,37 @@ async def run_transcription(msg, audio_bytes, mime_type, set_step):
         raise Exception(error_text)
 
 
-async def send_results(message, msg, transcript, set_step):
-    await set_step(msg, ProcessStatus.SENDING, notify_user=False)
-    limit = settings.MAX_RICH_MESSAGE_LENGTH
-    chunks = [transcript[i : i + limit] for i in range(0, len(transcript), limit)]
+TRANSCRIPTION_SUMMARY = "📝 Транскрипция"
 
-    first_rich = InputRichMessage(
+
+def _build_rich_message(text: str) -> InputRichMessage:
+    return InputRichMessage(
         blocks=[
             InputRichBlockDetails(
-                summary="📝 Транскрипция",
-                blocks=[InputRichBlockParagraph(text=chunks[0])],
+                summary=TRANSCRIPTION_SUMMARY,
+                blocks=[InputRichBlockParagraph(text=text)],
             )
         ]
     )
+
+
+async def send_results(message, msg, transcript, set_step):
+    await set_step(msg, ProcessStatus.SENDING, notify_user=False)
+    chunk_size = settings.MAX_RICH_MESSAGE_LENGTH - len(TRANSCRIPTION_SUMMARY)
+    chunks = [
+        transcript[i : i + chunk_size] for i in range(0, len(transcript), chunk_size)
+    ]
+
     await bot.edit_message_text(
         chat_id=msg.chat.id,
         message_id=msg.message_id,
-        rich_message=first_rich,
+        rich_message=_build_rich_message(chunks[0]),
     )
 
     for chunk in chunks[1:]:
-        rich = InputRichMessage(
-            blocks=[
-                InputRichBlockDetails(
-                    summary="📝 Транскрипция",
-                    blocks=[InputRichBlockParagraph(text=chunk)],
-                )
-            ]
-        )
         await bot.send_rich_message(
             chat_id=message.chat.id,
-            rich_message=rich,
+            rich_message=_build_rich_message(chunk),
             reply_parameters=message.as_reply_parameters(),
         )
 

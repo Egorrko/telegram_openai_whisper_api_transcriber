@@ -1,10 +1,16 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from bot.services.file_processor import ProcessStatus, send_results
+from bot.services.file_processor import (
+    ProcessStatus,
+    TRANSCRIPTION_SUMMARY,
+    send_results,
+)
 from config import settings
 
 pytestmark = pytest.mark.asyncio
+
+CHUNK_SIZE = settings.MAX_RICH_MESSAGE_LENGTH - len(TRANSCRIPTION_SUMMARY)
 
 
 def _make_message_and_msg():
@@ -33,6 +39,16 @@ def _extract_paragraph_text(details):
     return paragraph.text
 
 
+def _total_rich_text_length(rich_message):
+    """Total text length of a rich message (summary + all paragraph texts)."""
+    total = 0
+    for block in rich_message.blocks:
+        total += len(block.summary)
+        for inner in block.blocks:
+            total += len(inner.text)
+    return total
+
+
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
 async def test_short_transcription_rich_message(mock_bot):
     """Short transcript: one edit_message_text with Rich Message details block."""
@@ -51,7 +67,7 @@ async def test_short_transcription_rich_message(mock_bot):
 
     rich = edit_kwargs["rich_message"]
     details = _extract_details(rich)
-    assert details.summary == "📝 Транскрипция"
+    assert details.summary == TRANSCRIPTION_SUMMARY
     assert details.is_open is None
     assert _extract_paragraph_text(details) == transcript
 
@@ -60,11 +76,10 @@ async def test_short_transcription_rich_message(mock_bot):
 
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
 async def test_exact_boundary_single_message(mock_bot):
-    """Transcript of exactly MAX_RICH_MESSAGE_LENGTH: one edit, no overflow."""
+    """Transcript of exactly CHUNK_SIZE: one edit, no overflow, within API limit."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    limit = settings.MAX_RICH_MESSAGE_LENGTH
-    transcript = "a" * limit
+    transcript = "a" * CHUNK_SIZE
 
     await send_results(message, msg, transcript, set_step)
 
@@ -72,6 +87,7 @@ async def test_exact_boundary_single_message(mock_bot):
     rich = mock_bot.edit_message_text.call_args.kwargs["rich_message"]
     details = _extract_details(rich)
     assert _extract_paragraph_text(details) == transcript
+    assert _total_rich_text_length(rich) <= settings.MAX_RICH_MESSAGE_LENGTH
 
     mock_bot.send_rich_message.assert_not_awaited()
 
@@ -81,8 +97,7 @@ async def test_overflow_multi_chunk(mock_bot):
     """Transcript spanning 3 chunks: one edit + two send_rich_message calls."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    limit = settings.MAX_RICH_MESSAGE_LENGTH
-    transcript = "x" * limit + "y" * limit + "z" * 100
+    transcript = "x" * CHUNK_SIZE + "y" * CHUNK_SIZE + "z" * 100
 
     await send_results(message, msg, transcript, set_step)
 
@@ -90,7 +105,7 @@ async def test_overflow_multi_chunk(mock_bot):
     mock_bot.edit_message_text.assert_awaited_once()
     edit_rich = mock_bot.edit_message_text.call_args.kwargs["rich_message"]
     edit_details = _extract_details(edit_rich)
-    assert _extract_paragraph_text(edit_details) == "x" * limit
+    assert _extract_paragraph_text(edit_details) == "x" * CHUNK_SIZE
 
     # Overflow chunks: send_rich_message
     assert mock_bot.send_rich_message.await_count == 2
@@ -101,7 +116,7 @@ async def test_overflow_multi_chunk(mock_bot):
     first_details = _extract_details(first_send["rich_message"])
     second_details = _extract_details(second_send["rich_message"])
 
-    assert _extract_paragraph_text(first_details) == "y" * limit
+    assert _extract_paragraph_text(first_details) == "y" * CHUNK_SIZE
     assert _extract_paragraph_text(second_details) == "z" * 100
 
     # All overflow messages reply to the original message
@@ -121,11 +136,10 @@ async def test_overflow_multi_chunk(mock_bot):
 
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
 async def test_overflow_boundary_plus_one(mock_bot):
-    """Transcript of MAX_RICH_MESSAGE_LENGTH + 1: exactly two messages."""
+    """Transcript of CHUNK_SIZE + 1: exactly two messages."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    limit = settings.MAX_RICH_MESSAGE_LENGTH
-    transcript = "b" * (limit + 1)
+    transcript = "b" * (CHUNK_SIZE + 1)
 
     await send_results(message, msg, transcript, set_step)
 
@@ -138,7 +152,7 @@ async def test_overflow_boundary_plus_one(mock_bot):
     edit_text = _extract_paragraph_text(_extract_details(edit_rich))
     send_text = _extract_paragraph_text(_extract_details(send_rich))
 
-    assert edit_text == "b" * limit
+    assert edit_text == "b" * CHUNK_SIZE
     assert send_text == "b"
     assert edit_text + send_text == transcript
 
@@ -148,10 +162,9 @@ async def test_unicode_boundary(mock_bot):
     """Cyrillic and emoji across chunk boundary: exact reconstruction."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    limit = settings.MAX_RICH_MESSAGE_LENGTH
 
     # Place multibyte chars right at the boundary
-    prefix = "а" * (limit - 2)  # 2 chars before boundary
+    prefix = "а" * (CHUNK_SIZE - 2)  # 2 chars before boundary
     boundary_chars = "🎤т"  # emoji (4 bytes UTF-8) + Cyrillic (2 bytes)
     suffix = "б" * 50
     transcript = prefix + boundary_chars + suffix
@@ -160,36 +173,35 @@ async def test_unicode_boundary(mock_bot):
 
     edit_rich = mock_bot.edit_message_text.call_args.kwargs["rich_message"]
     edit_text = _extract_paragraph_text(_extract_details(edit_rich))
-    assert edit_text == transcript[:limit]
+    assert edit_text == transcript[:CHUNK_SIZE]
 
     assert mock_bot.send_rich_message.await_count == 1
     send_rich = mock_bot.send_rich_message.call_args.kwargs["rich_message"]
     send_text = _extract_paragraph_text(_extract_details(send_rich))
-    assert send_text == transcript[limit:]
+    assert send_text == transcript[CHUNK_SIZE:]
 
     assert edit_text + send_text == transcript
 
 
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
 async def test_all_chunks_within_rich_limit(mock_bot):
-    """No chunk exceeds MAX_RICH_MESSAGE_LENGTH."""
+    """Every rich message's total text (summary + paragraph) fits API limit."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
-    limit = settings.MAX_RICH_MESSAGE_LENGTH
-    transcript = "d" * (limit * 3 + 500)
+    transcript = "d" * (CHUNK_SIZE * 3 + 500)
 
     await send_results(message, msg, transcript, set_step)
 
-    all_texts = []
-    edit_rich = mock_bot.edit_message_text.call_args.kwargs["rich_message"]
-    all_texts.append(_extract_paragraph_text(_extract_details(edit_rich)))
+    all_rich = [mock_bot.edit_message_text.call_args.kwargs["rich_message"]]
+    all_rich += [
+        c.kwargs["rich_message"] for c in mock_bot.send_rich_message.call_args_list
+    ]
 
-    for call in mock_bot.send_rich_message.call_args_list:
-        rich = call.kwargs["rich_message"]
+    all_texts = []
+    for rich in all_rich:
+        assert _total_rich_text_length(rich) <= settings.MAX_RICH_MESSAGE_LENGTH
         all_texts.append(_extract_paragraph_text(_extract_details(rich)))
 
-    for text in all_texts:
-        assert len(text) <= limit
     assert "".join(all_texts) == transcript
 
 
