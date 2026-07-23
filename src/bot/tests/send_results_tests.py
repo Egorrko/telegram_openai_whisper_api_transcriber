@@ -96,34 +96,40 @@ def test_parse_json_escapes():
     assert result.full == 'строка с "кавычками" и \\обратным слэшем\\'
 
 
-# --- send_results: plain text for short answers ------------------------------
+# --- send_results: block quotation for short answers -------------------------
 
 
 @pytest.mark.asyncio
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
-async def test_json_single_line_full_plain_text(mock_bot):
-    """One-line full answer: plain edit_text, no collapsible block."""
+async def test_json_short_full_block_quotation(mock_bot):
+    """Short full answer: block quotation rich message, no collapsible block."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
 
     await send_results(message, msg, _json_response("Привет", "Привет, мир!"), set_step)
 
-    msg.edit_text.assert_awaited_once_with("Привет, мир!")
-    mock_bot.edit_message_text.assert_not_awaited()
+    mock_bot.edit_message_text.assert_awaited_once()
+    edit_kwargs = mock_bot.edit_message_text.call_args.kwargs
+    assert edit_kwargs["chat_id"] == msg.chat.id
+    assert edit_kwargs["message_id"] == msg.message_id
+    block = edit_kwargs["rich_message"].blocks[0]
+    assert block.type == "blockquote"
+    assert block.blocks[0].text == "Привет, мир!"
     mock_bot.send_rich_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 @patch("bot.services.file_processor.bot", new_callable=AsyncMock)
-async def test_plain_text_single_line_plain_text(mock_bot):
-    """Non-JSON one-line transcript (other engines): plain edit_text."""
+async def test_plain_text_short_block_quotation(mock_bot):
+    """Non-JSON short transcript (other engines): block quotation."""
     message, msg = _make_message_and_msg()
     set_step = AsyncMock()
 
     await send_results(message, msg, "Короткий ответ.", set_step)
 
-    msg.edit_text.assert_awaited_once_with("Короткий ответ.")
-    mock_bot.edit_message_text.assert_not_awaited()
+    block = mock_bot.edit_message_text.call_args.kwargs["rich_message"].blocks[0]
+    assert block.type == "blockquote"
+    assert block.blocks[0].text == "Короткий ответ."
 
 
 @pytest.mark.asyncio

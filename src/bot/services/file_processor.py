@@ -14,6 +14,7 @@ from aiogram.types import (
     InputRichMessage,
     InputRichBlockDetails,
     InputRichBlockParagraph,
+    InputRichBlockBlockQuotation,
 )
 from bot.bot_init import bot
 from config import settings
@@ -229,10 +230,20 @@ async def send_results(message, msg, transcript, set_step):
     result = parse_transcription_response(transcript)
     full = result.full
 
-    # Short answers are shown as plain text; longer ones go into a collapsible
-    # block with the short summary as its header.
+    # Short answers are shown as a block quotation; longer ones go into a
+    # collapsible block with the short summary as its header.
     if len(full) <= PLAIN_TEXT_MAX_LENGTH:
-        await msg.edit_text(full)
+        await bot.edit_message_text(
+            chat_id=msg.chat.id,
+            message_id=msg.message_id,
+            rich_message=InputRichMessage(
+                blocks=[
+                    InputRichBlockBlockQuotation(
+                        blocks=[InputRichBlockParagraph(text=full)]
+                    )
+                ]
+            ),
+        )
         return
 
     summary = result.short or _first_line(full)[:SHORT_SUMMARY_MAX_LENGTH]
