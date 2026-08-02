@@ -34,8 +34,21 @@ if config_env() != :test do
     String.to_integer(System.get_env(name) || default) * 60
   end
 
+  # Short chat IDs are turned into supergroup IDs exactly as the source did.
+  # Surprising, but it is the existing operational contract: every deployed
+  # allow-list is written in the short form.
+  chat_ids = fn name ->
+    (System.get_env(name) || "")
+    |> String.split(",", trim: true)
+    |> Enum.map(&(-(1_000_000_000_000 + String.to_integer(String.trim(&1)))))
+  end
+
   config :telegram_voice_transcriber_ash,
     telegram_token: System.get_env("TELEGRAM_TOKEN"),
+    bot_username: System.get_env("BOT_USERNAME"),
+    allowed_chat_ids: chat_ids.("ALLOWED_CHAT_IDS"),
+    forward_chat_ids: chat_ids.("FORWARD_CHAT_IDS"),
+    admin_id: System.get_env("ADMIN_ID") && String.to_integer(System.get_env("ADMIN_ID")),
     available_seconds: minutes.("AVAILABLE_MINUTES", "30"),
     left_warning_seconds: minutes.("LEFT_WARNING_MINUTES", "10"),
     currency_rate_seconds: minutes.("CURRENCY_RATE", "10"),

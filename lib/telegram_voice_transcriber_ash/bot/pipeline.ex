@@ -12,9 +12,11 @@ defmodule TelegramVoiceTranscriberAsh.Bot.Pipeline do
   require Logger
 
   alias TelegramVoiceTranscriberAsh.Bot.Identity
+  alias TelegramVoiceTranscriberAsh.Bot.Media
   alias TelegramVoiceTranscriberAsh.Bot.Messages
   alias TelegramVoiceTranscriberAsh.Metering
   alias TelegramVoiceTranscriberAsh.Settings
+  alias TelegramVoiceTranscriberAsh.Transcribing.Audio
   alias TelegramVoiceTranscriberAsh.Transcribing.Engine
   alias TelegramVoiceTranscriberAsh.Transcribing.ResponseParser
   alias TelegramVoiceTranscriberAsh.Transcribing.RichMessage
@@ -23,15 +25,23 @@ defmodule TelegramVoiceTranscriberAsh.Bot.Pipeline do
 
   @labels %{
     download: "Скачиваю файл...",
+    convert: "Достаю звук из видео...",
     transcribe: "Распознаю...",
     sending: "Отправляю результат..."
   }
 
-  @type media :: %{duration: integer(), file_id: String.t(), mime_type: String.t()}
+  @doc """
+  Run the pipeline for `media`, replying in `message`'s chat.
 
-  @spec run(ExGram.Model.Message.t(), media()) :: :ok
-  def run(message, media) do
-    hashed_user_id = Identity.hash(message.from.id)
+  `:hashed_user_id` overrides whose balance is charged. The forwarding path
+  needs it: the transcript is delivered next to the operator's copy, but the
+  original sender pays for it.
+  """
+  @spec run(ExGram.Model.Message.t(), Media.t(), keyword()) :: :ok
+  def run(message, media, opts \\ []) do
+    hashed_user_id =
+      Keyword.get_lazy(opts, :hashed_user_id, fn -> Identity.hash(message.from.id) end)
+
     Sentry.Context.set_user_context(%{id: hashed_user_id})
 
     case Metering.reserve!(hashed_user_id, media.duration) do
@@ -62,9 +72,10 @@ defmodule TelegramVoiceTranscriberAsh.Bot.Pipeline do
   end
 
   defp pipeline(message, progress, media) do
-    with {:ok, audio} <- step(:download, progress, fn -> download(media) end),
+    with {:ok, downloaded} <- step(:download, progress, fn -> download(media) end),
+         {:ok, {audio, mime_type}} <- convert(progress, media, downloaded),
          {:ok, {transcript, duration_ms}} <-
-           step(:transcribe, progress, fn -> timed(audio, media, progress) end),
+           step(:transcribe, progress, fn -> timed(audio, mime_type, progress) end),
          {:ok, _} <-
            step(:sending, progress, [notify?: false], fn ->
              deliver(message, progress, transcript)
@@ -96,10 +107,17 @@ defmodule TelegramVoiceTranscriberAsh.Bot.Pipeline do
     end
   end
 
-  defp timed(audio, media, progress) do
+  # R16: a video note carries a video stream the engines cannot read.
+  defp convert(progress, %{kind: :video_note}, video) do
+    step(:convert, progress, fn -> Audio.extract_audio(video) end)
+  end
+
+  defp convert(_progress, media, audio), do: {:ok, {audio, media.mime_type}}
+
+  defp timed(audio, mime_type, progress) do
     started = System.monotonic_time(:millisecond)
 
-    case Engine.transcribe(audio, media.mime_type, on_retry: &retry_notice(progress, &1, &2, &3)) do
+    case Engine.transcribe(audio, mime_type, on_retry: &retry_notice(progress, &1, &2, &3)) do
       {:ok, transcript} -> {:ok, {transcript, System.monotonic_time(:millisecond) - started}}
       {:error, _} = error -> error
     end

@@ -965,3 +965,49 @@ and Telegram allows ten seconds to answer.
 any group and the automatic path in `ALLOWED_CHAT_IDS` chats, including the
 `-(1_000_000_000_000 + id)` chat-ID transformation. After that, forwarding to
 the operator (3.5) and video notes with the ffmpeg step.
+
+### Slice 3 — video notes, group transcription, forwarding to the operator (done)
+
+Scenarios 3.3, 3.4 and 3.5, which is every remaining bot path. The three ship
+together because they interlock: allow-listed groups auto-transcribe video
+notes, and forwarding covers all three media kinds, so neither group path is
+complete without the ffmpeg step.
+
+**What shipped**
+
+| Layer | Modules |
+|---|---|
+| Pipeline | `Transcribing.Audio` — the ffmpeg step (R16), wired in as a `:convert` stage for video notes only |
+| Bot | `Bot.Media` (the three media kinds, shared by every entry point), `Bot.Forward`, three new clauses in `Bot` |
+| Pipeline | `Pipeline.run/3` takes `:hashed_user_id`, so the forwarding path can deliver to the operator while charging the sender |
+| Config | `BOT_USERNAME`, `ALLOWED_CHAT_IDS`, `FORWARD_CHAT_IDS` and `ADMIN_ID` are now read |
+
+**Behaviour preserved exactly, including the odd parts**
+
+- The `-(1_000_000_000_000 + id)` short-chat-ID transformation, because every
+  deployed allow-list is written in the short form.
+- R18: a reply mentioning the bot transcribes in *any* group, allow-listed or
+  not. It reads like a bug next to R17, but it is a feature people use.
+- Allow-listed chats transcribe voice notes and video notes but not audio
+  files; the reply-mention path takes voice and audio but not video notes.
+  Both asymmetries are the source's.
+- A chat in both lists is transcribed in place, never forwarded — the source's
+  router order decided that, and clause order reproduces it.
+- A forwarding failure is swallowed into Sentry and the log, and never surfaces
+  in the chat the message came from.
+
+**Deviation**
+
+`convert_video_to_audio` piped ffmpeg's stdout; this writes a second temp file
+instead, so ffmpeg's own error text can be captured and reported rather than
+being lost to the console. Both files are removed in an `after` block.
+
+**Verification**
+
+| Step | Result |
+|---|---|
+| `mix format`, `mix compile --warnings-as-errors` | passed |
+| `mix test` | passed, 82/82 |
+| ffmpeg conversion against a real generated video note, and against garbage | passed — ADTS output, ffmpeg's complaint returned as an error, no temp files left behind |
+| Group routing through the real ex_gram dispatcher: allow-listed voice, allow-listed audio (ignored), unlisted group (ignored), reply mention in an unlisted group, reply without the mention, mention replying to plain text, forward with annotation, forward with no operator configured, forward that fails | passed |
+| Live round trip against real Telegram | **not verified** — no credentials |

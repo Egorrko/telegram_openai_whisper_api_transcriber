@@ -2,10 +2,15 @@ defmodule TelegramVoiceTranscriberAsh.Bot do
   @moduledoc """
   The Telegram front end. Replaces the source's aiogram routers.
 
-  Covers the private-chat path: a voice message or audio file is transcribed,
-  `/start` explains the product, `/stats` reports the balance, and `/payment N`
-  buys minutes with Telegram Stars. Group transcription, reply-mentions,
-  forwarding to the operator and video notes are later slices.
+  Voice messages, audio files and video notes are transcribed in private chats,
+  in allow-listed groups, and anywhere a reply mentioning the bot points at one.
+  Messages from `FORWARD_CHAT_IDS` chats are forwarded to the operator and
+  transcribed there. `/start`, `/stats`, `/payment N` and `/paysupport` are the
+  commands.
+
+  Clause order is load-bearing, the same way the source's router registration
+  order was: payments before media, allow-listed groups before forwarding, and
+  the catch-all last.
   """
 
   use ExGram.Bot,
@@ -14,9 +19,14 @@ defmodule TelegramVoiceTranscriberAsh.Bot do
 
   alias TelegramVoiceTranscriberAsh.Bot.Identity
   alias TelegramVoiceTranscriberAsh.Bot.Messages
+  alias TelegramVoiceTranscriberAsh.Bot.Forward
+  alias TelegramVoiceTranscriberAsh.Bot.Media
   alias TelegramVoiceTranscriberAsh.Bot.Payments
   alias TelegramVoiceTranscriberAsh.Bot.Pipeline
   alias TelegramVoiceTranscriberAsh.Metering
+  alias TelegramVoiceTranscriberAsh.Settings
+
+  @group_types ["group", "supergroup"]
 
   command("start", description: "Что умеет бот")
   command("stats", description: "Сколько минут распознавания осталось")
@@ -60,10 +70,36 @@ defmodule TelegramVoiceTranscriberAsh.Bot do
   end
 
   def handle({:message, %{chat: %{type: "private"}} = message}, context) do
-    case media(message) do
+    case Media.from(message) do
       nil -> context
       media -> run(message, media, context)
     end
+  end
+
+  # R18: the reply-mention path works in *any* group, not only allow-listed
+  # ones. That is how the source behaves, and changing it would silently take
+  # the feature away from chats that use it.
+  def handle({:text, text, %{chat: %{type: type}} = message}, context)
+      when type in @group_types do
+    with true <- mentions_bot?(text),
+         %{} = media <- replied_media(message) do
+      Pipeline.run(message, media)
+    end
+
+    context
+  end
+
+  # R17: allow-listed chats first, exactly like the source's router order — a
+  # chat in both lists is transcribed in place rather than forwarded.
+  def handle({:message, %{chat: %{type: type, id: chat_id}} = message}, context)
+      when type in @group_types do
+    cond do
+      chat_id in Settings.allowed_chat_ids() -> transcribe_in_group(message)
+      chat_id in Settings.forward_chat_ids() -> Forward.run(message)
+      true -> :ok
+    end
+
+    context
   end
 
   def handle(_message, context), do: context
@@ -73,13 +109,26 @@ defmodule TelegramVoiceTranscriberAsh.Bot do
     context
   end
 
-  defp media(%{voice: %{} = voice}) do
-    %{duration: voice.duration, file_id: voice.file_id, mime_type: voice.mime_type}
+  defp mentions_bot?(text) do
+    case Settings.bot_username() do
+      nil -> false
+      username -> String.contains?(text, username)
+    end
   end
 
-  defp media(%{audio: %{} = audio}) do
-    %{duration: audio.duration, file_id: audio.file_id, mime_type: audio.mime_type}
+  # A reply mention transcribes what was replied to — voice or audio only.
+  defp replied_media(%{reply_to_message: %{} = replied}) do
+    replied |> Media.from() |> Media.of_kind([:voice, :audio])
   end
 
-  defp media(_message), do: nil
+  defp replied_media(_message), do: nil
+
+  # Allow-listed chats auto-transcribe voice and video notes, but not audio
+  # files: the source never did, and a shared music file is not a voice note.
+  defp transcribe_in_group(message) do
+    case message |> Media.from() |> Media.of_kind([:voice, :video_note]) do
+      nil -> :ok
+      media -> Pipeline.run(message, media)
+    end
+  end
 end

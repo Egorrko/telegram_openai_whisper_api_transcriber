@@ -31,6 +31,18 @@ defmodule TelegramVoiceTranscriberAsh.Settings do
 
   def telegram_token, do: get(:telegram_token)
 
+  @doc "Bot handle, including the @. A group reply mentioning it triggers transcription."
+  def bot_username, do: get(:bot_username)
+
+  @doc "Chats where every voice message and video note is transcribed automatically."
+  def allowed_chat_ids, do: get(:allowed_chat_ids, [])
+
+  @doc "Chats whose voice, audio and video notes are forwarded to the operator."
+  def forward_chat_ids, do: get(:forward_chat_ids, [])
+
+  @doc "Raw Telegram ID of the operator receiving forwarded messages. Not hashed."
+  def admin_id, do: get(:admin_id)
+
   @doc "Set to false to run a node that serves the console but does not poll Telegram."
   def start_bot?, do: get(:start_bot, true)
 

@@ -10,6 +10,7 @@ defmodule TelegramVoiceTranscriberAsh.BotTest do
 
   alias TelegramVoiceTranscriberAsh.Bot
   alias TelegramVoiceTranscriberAsh.Bot.Identity
+  alias TelegramVoiceTranscriberAsh.MediaFixtures
   alias TelegramVoiceTranscriberAsh.Metering
   alias TelegramVoiceTranscriberAsh.Settings
 
@@ -130,6 +131,21 @@ defmodule TelegramVoiceTranscriberAsh.BotTest do
 
     subscriber = Metering.get_subscriber!(Identity.hash(@telegram_user_id))
     assert subscriber.left_purchased_seconds == 7 * Settings.currency_rate_seconds()
+  end
+
+  test "a video note is converted before it reaches the engine", %{bot_name: bot} do
+    video = MediaFixtures.video_note()
+    Req.default_options(plug: fn conn -> Plug.Conn.resp(conn, 200, video) end)
+
+    note = %ExGram.Model.VideoNote{file_id: "f", duration: 5, length: 240}
+
+    ExGram.Test.push_update(bot, update(message: message(video_note: note)))
+
+    assert Enum.any?(calls(:edit_message_text), &(&1[:text] == "Достаю звук из видео..."))
+    assert %{rich_message: %{blocks: [_ | _]}} = List.last(calls(:edit_message_text))
+
+    subscriber = Metering.get_subscriber!(Identity.hash(@telegram_user_id))
+    assert subscriber.left_free_seconds == Settings.available_seconds() - 5
   end
 
   test "a voice message in a private chat is transcribed", %{bot_name: bot} do
