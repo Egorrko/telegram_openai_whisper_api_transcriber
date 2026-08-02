@@ -82,8 +82,10 @@ RUN mix release
 # the compiled release and other runtime necessities
 FROM ${RUNNER_IMAGE} AS final
 
+# ffmpeg is a hard runtime dependency: video notes are converted before they
+# reach a transcription engine.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates \
+  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale

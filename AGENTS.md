@@ -5,6 +5,43 @@ This is a web application written using the Phoenix web framework.
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 
+### The bot layer (ex_gram)
+
+ex_gram ships no usage rules, so the conventions this project settled on are
+written down here.
+
+- **The adapter is Req**, set in `config/config.exs`. ex_gram defaults to
+  Tesla, which is not a dependency. `TELEGRAM_BOT_API_URL` becomes
+  `config :ex_gram, :base_url`.
+- **The bot only starts when `TELEGRAM_TOKEN` is set** and `:start_bot` is not
+  false (`Application.bot_children/0`). Tests set the token and disable the
+  supervisor, so nothing polls Telegram.
+- **API calls pass `token: Settings.telegram_token()` explicitly** rather than
+  `bot: :name`, so any process can call the API without the bot registry.
+- **`Bot` is routing only.** Work belongs in `Bot.Pipeline`, `Bot.Payments` or
+  `Bot.Forward`. Clause order is load-bearing and mirrors the source's router
+  registration order: payments, then private media, then groups, catch-all
+  last. A new clause goes in the position its source router had.
+- **Update shapes.** A command is `{:command, :name, message}` with
+  `message.text` holding *only* the arguments; a text message is
+  `{:text, text, message}`; media and `successful_payment` arrive as
+  `{:message, message}`; anything ex_gram has no clause for — the pre-checkout
+  query, for one — arrives as `{:update, update}`.
+- **Rich messages carry a `blocks` field ex_gram does not model yet** (Bot API
+  10.2 vs its 10.1). `Transcribing.RichMessage.input_rich_message/1` adds it to
+  the struct; ex_gram serialises structs as plain maps, so it reaches Telegram
+  intact. Do not "fix" that `Map.put/3` — read the module doc first.
+- **Testing.** `config/test.exs` selects `ExGram.Adapter.Test`, and
+  `test_helper.exs` starts it. Stub with `ExGram.Test.stub/2` and assert on
+  `ExGram.Test.get_calls/0`, which returns request bodies *after* ex_gram has
+  flattened structs into maps. For routing, `ExGram.Test.start_bot/3` plus
+  `push_update/2` runs the real dispatcher; that needs `start_supervised!(ExGram)`
+  first, because the application does not start it in `:test`.
+- **Progress edits are decoration.** A failed edit must never abort a
+  transcription — that is why `Bot.Pipeline.edit/3` swallows errors.
+- **ffmpeg is a runtime dependency** of both the container and any development
+  machine that touches video notes.
+
 ### Phoenix v1.8 guidelines
 
 - **Always** begin your LiveView templates with `<Layouts.app flash={@flash} ...>` which wraps all inner content

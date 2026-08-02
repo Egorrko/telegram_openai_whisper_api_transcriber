@@ -1055,3 +1055,49 @@ the balances verbatim.
 | Crontab registration | passed |
 | Import against a SQLite database built with the source's own schema: balances, microsecond timestamps, the null latch, the `-1` sentinel, a duplicate charge, and a repeated run | passed |
 | Import against the real production database | **not verified** — no such file in this environment |
+
+### Slice 5 — deployment and agent documentation (done)
+
+Not a product slice: what the previous four made necessary in the image and in
+the project's own instructions.
+
+- **`ffmpeg` added to the runtime image.** The source's Dockerfile installed
+  it; the generated one did not, so video notes would have failed in production
+  with an ffmpeg-not-found error while passing every test on a developer
+  machine.
+- **ex_gram conventions written into `AGENTS.md`**, as the bootstrap handoff
+  said they would have to be: the Req adapter, the token-passing convention,
+  clause ordering, the update shapes, the rich-message hack, and how to test
+  against the ex_gram test adapter. ex_gram ships no usage rules of its own.
+
+**Verification**
+
+| Step | Result |
+|---|---|
+| `MIX_ENV=prod mix compile --force --warnings-as-errors` | passed |
+| `MIX_ENV=prod mix assets.deploy` | passed, client and SSR bundles |
+| `MIX_ENV=prod mix release --overwrite` | passed |
+| `docker build` | passed |
+| `ffmpeg -version` inside the runner image | passed, ffmpeg 7.1.5 |
+| `/app/bin/migrate` against `postgres:17-alpine` | passed, all three migrations |
+| Running container: `/` 200, `/admin` 401 without credentials, 200 with, `/oban` 200 with | passed |
+| `Settings.telegram_token()` in the container with no token set | passed, `nil` — the bot stays stopped and the endpoint serves alone |
+| Container logs | passed, no errors |
+
+Containers, the image and the network created for this were removed afterwards.
+
+## 17. What is left
+
+Everything in sections 1-10 that the source does is now implemented, with one
+deliberate exception and one product decision:
+
+- **`/model` was not ported** (defect D4: it exposes engine configuration to
+  every user). AshAdmin covers the operator's need. Confirm before release.
+- **The LiveVue operator console is parked.** AshAdmin plus Oban Web behind
+  basic auth is the console; section 12's `/subscribers`, `/payments` and
+  `/engines` screens are a proposal, not planned work.
+
+The remaining risk is entirely in what cannot be exercised without credentials:
+Telegram's acceptance of the Bot API 10.2 rich-message payload, a real
+transcription engine, and a real Stars purchase. See the handoff's open
+questions.

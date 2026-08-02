@@ -280,10 +280,11 @@ Bot API 10.2 rich-message gap, and the failure path — every identified risk.
    it, but file downloads still build a public-API URL through
    `ExGram.File.file_url/2`, and the local server's downloaded-file cleanup has
    no equivalent yet. Anyone switching to a local Bot API server must finish
-   this.
-8. **Video notes are silently ignored** in private chats, because the ffmpeg
-   conversion step is outside the first slice. Whoever picks up that slice
-   should decide whether an unsupported media type deserves a reply.
+   this. It is also the only thing standing between the Gemini engine and files
+   larger than about 20 MB, since audio is sent inline.
+8. **A media type nobody handles is still silently ignored** — a document, a
+   video file, a sticker. Every kind the source handled is now implemented, so
+   this is only a question of whether an unsupported type deserves a reply.
 9. **The `req` override is load-bearing.** `{:req, "~> 0.7", override: true}`
    keeps a HIGH CVE out of the tree while still using ex_gram. Do not "clean it
    up". Remove it only when ex_gram widens its constraint, and re-run the
