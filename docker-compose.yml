@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: telegram_voice_transcriber_ash_prod
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  bot:
+    build: .
+    # Migrations run on every boot: they are idempotent, and a release cannot
+    # start against a schema older than itself.
+    command: sh -c "/app/bin/migrate && /app/bin/server"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ecto://postgres:${POSTGRES_PASSWORD:-postgres}@db/telegram_voice_transcriber_ash_prod
+      PHX_SERVER: "true"
+    ports:
+      # The operator console. Drop this to keep it off the public internet and
+      # reach it over an SSH tunnel instead.
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  pgdata:

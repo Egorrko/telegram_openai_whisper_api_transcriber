@@ -73,13 +73,22 @@ Configuration is read from the environment at boot; see
 start without them.
 
 ```bash
-docker build -t telegram_voice_transcriber_ash .
-docker run --rm --env-file .env telegram_voice_transcriber_ash /app/bin/migrate
-docker run -d -p 4000:4000 --env-file .env telegram_voice_transcriber_ash
+cp .env.example .env    # then fill it in
+docker compose up -d --build
+docker compose logs -f bot
 ```
 
+Compose brings up Postgres and the bot; migrations run on every boot, which is
+safe because they are idempotent. `DATABASE_URL` is supplied by compose, so the
+one in `.env` is ignored there. The console is published on `127.0.0.1:4000`
+only — reach it over an SSH tunnel, or drop the port mapping entirely.
+
+**Only one process may poll a given bot token.** Stop the old deployment before
+starting this one, or test against a second bot from @BotFather.
+
 The generated Dockerfile was adjusted for this stack: the builder installs
-`nodejs`/`npm`, and `npm install` runs at the project root after `mix deps.get`.
+`nodejs`/`npm`, `npm install` runs at the project root after `mix deps.get`,
+and the runner image carries `ffmpeg`, which video notes need.
 
 ## Agent documentation
 

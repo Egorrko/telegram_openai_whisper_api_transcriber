@@ -266,13 +266,11 @@ Bot API 10.2 rich-message gap, and the failure path — every identified risk.
    down is delivered on restart instead of being discarded. Confirm nothing
    operational depended on the old behavior — a long outage now replays its
    whole backlog of voice messages, not just payments.
-4. **The proxy covers the providers, not Telegram.** `PROXY_*` is implemented
-   and needed — the target VPS cannot reach Google's APIs directly. Gemini,
-   OpenAI, ElevenLabs and Sentry go through it; Telegram does not, because
-   ex_gram's adapter hardcodes its own `connect_options` and Req refuses to
-   combine those with a proxied pool. If `api.telegram.org` turns out to be
-   unreachable too, the fix is to vendor ex_gram's ~60-line Req adapter with
-   `connect_options` added. Nothing else would change.
+4. ~~**Does Telegram need the proxy too?**~~ **Answered: no.** The deployment
+   VPS reaches `api.telegram.org` directly and only needs the proxy for
+   Google's APIs, which is exactly what is implemented. Should that ever
+   change, the fix is to vendor ex_gram's ~60-line Req adapter with
+   `connect_options` added; nothing else about `Proxy` would change.
 5. **Should `/model` survive?** It leaks engine configuration to every user
    (D4). Not ported so far. AshAdmin covers the operator need, so the honest
    default is to leave it out — confirm.

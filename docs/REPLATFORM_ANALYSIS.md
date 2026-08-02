@@ -1131,6 +1131,23 @@ before it could ship.
 | The same transport options in the Finch shape Sentry needs | passed |
 | Against a real proxy and real Google credentials | **not verified** — neither is available here |
 
+### Slice 8 — one command to run it (done)
+
+`docker-compose.yml`: Postgres with a named volume, and the bot built from the
+Dockerfile, reading `.env`, running `/app/bin/migrate` before `/app/bin/server`
+on every boot. The console is published on `127.0.0.1:4000` only, so it is not
+exposed unless someone tunnels to it.
+
+Verified by bringing the stack up: migrations applied, `/` 200, `/admin` 401
+without credentials and 200 with them, `ffmpeg 7.1.5` inside the container, and
+`{telegram_token, proxy configured?, available_seconds}` reporting
+`{nil, false, 1800}` with no token in the environment — the bot stays stopped
+and the endpoint serves alone. Stack and volume removed afterwards.
+
+Operational note recorded in the README: only one process may poll a given bot
+token, so the old deployment has to stop before this one starts, or the test
+has to use a second bot.
+
 ## 17. What is left
 
 Everything in sections 1-10 that the source does is now implemented, with one
