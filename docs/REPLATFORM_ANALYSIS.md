@@ -1011,3 +1011,47 @@ being lost to the console. Both files are removed in an `after` block.
 | ffmpeg conversion against a real generated video note, and against garbage | passed — ADTS output, ffmpeg's complaint returned as an error, no temp files left behind |
 | Group routing through the real ex_gram dispatcher: allow-listed voice, allow-listed audio (ignored), unlisted group (ignored), reply mention in an unlisted group, reply without the mention, mention replying to plain text, forward with annotation, forward with no operator configured, forward that fails | passed |
 | Live round trip against real Telegram | **not verified** — no credentials |
+
+### Slice 4 — the nightly free-allowance sweep and the SQLite import (done)
+
+The two remaining non-UI items from the analysis: R4's "the reset never fires
+on a schedule", and section 10's data migration.
+
+**The sweep.** An AshOban trigger on `Subscriber`, `17 3 * * *`, selecting
+`last_free_reset_at < ago(30, :day)` and running the existing
+`:apply_free_reset` action per record. `:reserve` still resets on the spot when
+a stale account is used, so the two paths cannot disagree — the sweep only
+means a dormant account no longer shows a stale balance in `/stats` or in the
+operator console. Registered crontab entry verified:
+`{"17 3 * * *", …Schedulers.ResetFreeAllowance, []}` with the `default` queue.
+
+**The import.** `mix import_django PATH_TO_DB_SQLITE3`, run against a stopped
+bot. Reading goes through the `sqlite3` CLI rather than an Elixir driver: it
+runs once, and a driver would be a permanent dependency for a one-shot job.
+It translates what section 10 said it would — integer keys to UUIDs, the `-1`
+sentinel to `status: :failed`, `payment_id` to a unique `charge_id` — and is
+idempotent on `hashed_user_id` and `charge_id`, so a half-finished run can be
+repeated.
+
+Two things it does *not* repair, deliberately:
+
+- accounts whose `left_free_seconds` is `0` because they were created outside
+  `get_or_create_user` are imported as-is; the reset rule fixes them on its own;
+- `seconds_credited` on historical payments is reconstructed from the *current*
+  `CURRENCY_RATE`, because the source never recorded the rate in force at the
+  time. Duplicate `payment_id` rows — which the source's schema allowed — are
+  reported and skipped rather than merged.
+
+A new `:import` action on `Subscriber` exists solely for this task and writes
+the balances verbatim.
+
+**Verification**
+
+| Step | Result |
+|---|---|
+| `mix format`, `mix compile --warnings-as-errors` | passed |
+| `mix test` | passed, 89/89 |
+| Sweep against seeded accounts: dormant reset, recent left alone, purchased balance untouched | passed |
+| Crontab registration | passed |
+| Import against a SQLite database built with the source's own schema: balances, microsecond timestamps, the null latch, the `-1` sentinel, a duplicate charge, and a repeated run | passed |
+| Import against the real production database | **not verified** — no such file in this environment |

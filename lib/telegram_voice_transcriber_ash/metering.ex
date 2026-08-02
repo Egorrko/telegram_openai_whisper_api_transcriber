@@ -19,6 +19,7 @@ defmodule TelegramVoiceTranscriberAsh.Metering do
       define :credit_seconds, args: [:seconds]
       define :mark_warned
       define :apply_free_reset
+      define :import_subscriber, action: :import
     end
 
     resource TelegramVoiceTranscriberAsh.Metering.TranscriptionLog do

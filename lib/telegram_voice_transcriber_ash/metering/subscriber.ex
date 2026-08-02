@@ -8,7 +8,7 @@ defmodule TelegramVoiceTranscriberAsh.Metering.Subscriber do
     otp_app: :telegram_voice_transcriber_ash,
     domain: TelegramVoiceTranscriberAsh.Metering,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshAdmin.Resource]
+    extensions: [AshAdmin.Resource, AshOban]
 
   alias TelegramVoiceTranscriberAsh.Metering.Subscriber.Reserve
 
@@ -32,6 +32,29 @@ defmodule TelegramVoiceTranscriberAsh.Metering.Subscriber do
         name: "left_purchased_seconds_non_negative",
         check: "left_purchased_seconds >= 0",
         message: "purchased balance cannot go negative"
+    end
+  end
+
+  # R4 in the source was "the reset is lazy — it fires on the next
+  # transcription attempt, never on a schedule", which means a dormant account
+  # shows a stale balance until its owner comes back. A nightly sweep gives
+  # every account its allowance on time; `:reserve` still resets on the spot,
+  # so the two cannot disagree.
+  oban do
+    triggers do
+      trigger :reset_free_allowance do
+        action :apply_free_reset
+        where expr(last_free_reset_at < ago(30, :day))
+        scheduler_cron "17 3 * * *"
+        worker_read_action :read
+
+        worker_module_name TelegramVoiceTranscriberAsh.Metering.Subscriber.Workers.ResetFreeAllowance
+
+        scheduler_module_name TelegramVoiceTranscriberAsh.Metering.Subscriber.Schedulers.ResetFreeAllowance
+
+        max_attempts 3
+        queue :default
+      end
     end
   end
 
@@ -76,6 +99,11 @@ defmodule TelegramVoiceTranscriberAsh.Metering.Subscriber do
     update :mark_warned do
       description "R6: latch the low-balance warning so it is only shown once."
       change set_attribute(:warned_at, &DateTime.utc_now/0)
+    end
+
+    update :import do
+      description "Data migration only: copy a Django row's balances verbatim."
+      accept [:left_free_seconds, :left_purchased_seconds, :last_free_reset_at, :warned_at]
     end
 
     update :credit_seconds do
