@@ -1,3 +1,4 @@
+import "vite/modulepreload-polyfill";
 // If you want to use Phoenix channels, run `mix help phx.gen.channel`
 // to get started and then uncomment the line below.
 // import "./user_socket.js"
@@ -23,13 +24,15 @@ import "phoenix_html"
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/telegram_voice_transcriber_ash"
-import topbar from "../vendor/topbar"
+import topbar from "topbar"
+import {getHooks} from "live_vue"
+import liveVueApp from "../vue"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, ...getHooks(liveVueApp)},
 })
 
 // Show progress bar on live navigation and form submits
@@ -80,4 +83,3 @@ if (process.env.NODE_ENV === "development") {
     window.liveReloader = reloader
   })
 }
-

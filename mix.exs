@@ -12,7 +12,34 @@ defmodule TelegramVoiceTranscriberAsh.MixProject do
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
-      consolidate_protocols: Mix.env() != :dev
+      consolidate_protocols: Mix.env() != :dev,
+      usage_rules: usage_rules()
+    ]
+  end
+
+  # Agent-facing documentation, synced with `mix usage_rules.sync`.
+  # Language-level rules are inlined into AGENTS.md because they always apply;
+  # framework rules live in skills so they load only when relevant.
+  defp usage_rules do
+    [
+      file: "AGENTS.md",
+      usage_rules: ["usage_rules:elixir", "usage_rules:otp"],
+      skills: [
+        location: ".claude/skills",
+        package_skills: [:ash, ~r/^ash_/, :phoenix, ~r/^phoenix_/, :live_vue],
+        build: [
+          "ash-framework": [
+            description:
+              "Use when working with Ash Framework or any of its extensions. Always consult this before changing domains, resources, actions, policies, or migrations.",
+            usage_rules: [:ash, ~r/^ash_/, :spark, :reactor]
+          ],
+          "phoenix-livevue-web": [
+            description:
+              "Use when working on the web layer: Phoenix, LiveView, and the LiveVue component layer that renders every screen in this project.",
+            usage_rules: [:phoenix, ~r/^phoenix_/, :live_vue]
+          ]
+        ]
+      ]
     ]
   end
 
@@ -41,6 +68,11 @@ defmodule TelegramVoiceTranscriberAsh.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:finch, "~> 0.21"},
+      {:sentry, "~> 13.0"},
+      {:ex_gram, "~> 0.67"},
+      {:quickbeam, "~> 0.8"},
+      {:live_vue, "~> 1.0"},
       {:bcrypt_elixir, "~> 3.0"},
       {:picosat_elixir, "~> 0.2"},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
@@ -64,8 +96,6 @@ defmodule TelegramVoiceTranscriberAsh.MixProject do
       {:phoenix_live_view, "~> 1.2.0"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:phoenix_live_dashboard, "~> 0.8.3"},
-      {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
-      {:tailwind, "~> 0.5", runtime: Mix.env() == :dev},
       {:heroicons,
        github: "tailwindlabs/heroicons",
        tag: "v2.2.0",
@@ -73,19 +103,15 @@ defmodule TelegramVoiceTranscriberAsh.MixProject do
        app: false,
        compile: false,
        depth: 1},
-      {:daisyui,
-       github: "saadeghi/daisyui",
-       tag: "v5.5.20",
-       sparse: "packages/bundle",
-       app: false,
-       compile: false,
-       depth: 1},
       {:swoosh, "~> 1.16"},
-      {:req, "~> 0.5"},
+      # Overridden past ex_gram's {:req, "~> 0.5.0"} bound: every req 0.5.x is
+      # affected by EEF-CVE-2026-49755 (HIGH, decompression-bomb DoS), fixed in
+      # 0.6.1. Drop the override once ex_gram widens its constraint.
+      {:req, "~> 0.7", override: true},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
-      {:jason, "~> 1.2"},
+      {:jason, "~> 1.4"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"}
     ]
@@ -103,16 +129,13 @@ defmodule TelegramVoiceTranscriberAsh.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ash.setup --quiet", "test"],
-      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
+      "assets.setup": ["phoenix_vite.npm assets install"],
       "assets.build": [
-        "compile",
-        "tailwind telegram_voice_transcriber_ash",
-        "esbuild telegram_voice_transcriber_ash"
+        "phoenix_vite.npm vite build --manifest --ssrManifest --emptyOutDir true",
+        "phoenix_vite.npm vite build --emptyOutDir false --ssr js/server.js --outDir ../priv/static"
       ],
       "assets.deploy": [
-        "tailwind telegram_voice_transcriber_ash --minify",
-        "esbuild telegram_voice_transcriber_ash --minify",
-        "phx.digest"
+        "assets.build"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
     ]

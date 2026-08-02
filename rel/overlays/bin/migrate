@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+cd -P -- "$(dirname -- "$0")"
+exec ./telegram_voice_transcriber_ash eval TelegramVoiceTranscriberAsh.Release.migrate

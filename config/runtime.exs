@@ -29,8 +29,6 @@ if config_env() == :dev do
     live_reload: [
       web_console_logger: true,
       patterns: [
-        # Static assets, except user uploads
-        ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
         # Gettext translations
         ~r"priv/gettext/.*\.po$"E,
         # Router, Controllers, LiveViews and LiveComponents
@@ -83,12 +81,17 @@ if config_env() == :prod do
       # for details about using IPv6 vs IPv4 and loopback vs public addresses.
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
-    secret_key_base: secret_key_base
+    secret_key_base: secret_key_base,
+    cache_static_manifest_latest:
+      PhoenixVite.cache_static_manifest_latest(:telegram_voice_transcriber_ash)
 
   config :telegram_voice_transcriber_ash,
     token_signing_secret:
       System.get_env("TOKEN_SIGNING_SECRET") ||
         raise("Missing environment variable `TOKEN_SIGNING_SECRET`!")
+
+  # Optional: unset SENTRY_DSN leaves Sentry inert instead of failing to boot.
+  config :sentry, dsn: System.get_env("SENTRY_DSN")
 
   # ## SSL Support
   #

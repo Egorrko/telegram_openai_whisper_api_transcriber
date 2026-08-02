@@ -57,11 +57,25 @@
     </div>
 
     <p class="text-[2rem] mt-4 font-semibold leading-10 tracking-tighter text-balance">
-      Peace of mind from prototype to production.
+      End-to-end reactivity for your Live Vue apps.
     </p>
     <p class="mt-4 leading-7 text-base-content/70">
-      Build rich, interactive web applications quickly, with less code and fewer moving parts. Join our growing community of developers using Phoenix to craft APIs, HTML5 apps and more, for fun or at scale.
+      Congratulations, you've successfully created a LiveVue app with Phoenix!
+      We've automatically created two files for you: <br />
+      <code class="text-sm text-primary">assets/vue/VueDemo.vue</code>
+      <br />
+      <code class="text-sm text-primary">lib/telegram_voice_transcriber_ash_web/live/vue_demo.ex</code>
+      <br /> Click the button below to see it in action.
     </p>
+    <%!-- The demo route only exists when :dev_routes is enabled, so it cannot be a
+         verified ~p route: that would warn on every prod compile. --%>
+    <a
+      :if={Application.get_env(:telegram_voice_transcriber_ash, :dev_routes, false)}
+      href="/dev/vue_demo"
+      class="btn btn-primary mt-4"
+    >
+      Vue Demo
+    </a>
     <div class="flex">
       <div class="w-full sm:w-auto">
         <div class="mt-10 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">

@@ -7,6 +7,10 @@ defmodule TelegramVoiceTranscriberAsh.Application do
 
   @impl true
   def start(_type, _args) do
+    :logger.add_handler(:sentry_handler, Sentry.LoggerHandler, %{
+      config: %{metadata: [:file, :line]}
+    })
+
     children = [
       TelegramVoiceTranscriberAshWeb.Telemetry,
       TelegramVoiceTranscriberAsh.Repo,
@@ -28,6 +32,14 @@ defmodule TelegramVoiceTranscriberAsh.Application do
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: TelegramVoiceTranscriberAsh.Supervisor]
+
+    children =
+      children ++
+        if(Application.get_env(:live_vue, :ssr_module) == LiveVue.SSR.QuickBEAM,
+          do: [LiveVue.SSR.QuickBEAM],
+          else: []
+        )
+
     Supervisor.start_link(children, opts)
   end
 

@@ -6,6 +6,7 @@
 @import "phoenix-colocated/telegram_voice_transcriber_ash/colocated.css";
 @source "../css";
 @source "../js";
+@source "../vue";
 @source "../../lib/telegram_voice_transcriber_ash_web";
 /* Required for Tailwind to automatically pick up changes in colocated CSS files in dev */
 @source "../../_build/dev/phoenix-colocated/telegram_voice_transcriber_ash/*/";
@@ -15,14 +16,15 @@
 @plugin "../vendor/heroicons";
 
 /* daisyUI Tailwind Plugin. */
-@plugin "daisyui/packages/bundle/daisyui" {
+/* Workaround: use full path until tailwindcss >= 4.2.5, see https://github.com/tailwindlabs/tailwindcss/pull/19949 */
+@plugin "daisyui/index.js" {
   themes: false;
 }
 
 /* daisyUI theme plugin.
   We ship with two themes, a light one inspired on Phoenix colors and a dark one inspired
   on Elixir colors. Build your own at: https://daisyui.com/theme-generator/ */
-@plugin "daisyui/packages/bundle/daisyui-theme" {
+@plugin "daisyui/theme" {
   name: "dark";
   default: false;
   prefersdark: true;
@@ -57,7 +59,7 @@
   --noise: 0;
 }
 
-@plugin "daisyui/packages/bundle/daisyui-theme" {
+@plugin "daisyui/theme" {
   name: "light";
   default: true;
   prefersdark: false;

@@ -1,5 +1,6 @@
 defmodule TelegramVoiceTranscriberAshWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :telegram_voice_transcriber_ash
+  import PhoenixVite.Plug
 
   # The session will be stored in the cookie and signed,
   # this means its contents can be read but not tampered with.
@@ -14,6 +15,8 @@ defmodule TelegramVoiceTranscriberAshWeb.Endpoint do
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]
+
+  plug :favicon, dev_server: {PhoenixVite.Components, :has_vite_watcher?, [__MODULE__]}
 
   # Serve at "/" the static files from "priv/static" directory.
   #
@@ -49,6 +52,7 @@ defmodule TelegramVoiceTranscriberAshWeb.Endpoint do
     pass: ["*/*"],
     json_decoder: Phoenix.json_library()
 
+  plug Sentry.PlugContext
   plug Plug.MethodOverride
   plug Plug.Head
   plug Plug.Session, @session_options

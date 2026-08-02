@@ -7,6 +7,18 @@
 # General application configuration
 import Config
 
+config :live_vue, ssr: true, shared_props: []
+
+config :phoenix_vite, PhoenixVite.Npm,
+  # package.json lives at the project root (LiveVue's layout) and references
+  # deps/* via file: specs, so npm has to run there — not in config/.
+  assets: [args: [], cd: Path.expand("..", __DIR__)],
+  vite: [
+    args: ~w(exec -- vite),
+    cd: Path.expand("../assets", __DIR__),
+    env: %{"MIX_BUILD_PATH" => Mix.Project.build_path()}
+  ]
+
 config :ash_oban, pro?: false
 
 config :telegram_voice_transcriber_ash, Oban,
@@ -100,28 +112,6 @@ config :phoenix_live_view,
 # at the `config/runtime.exs`.
 config :telegram_voice_transcriber_ash, TelegramVoiceTranscriberAsh.Mailer,
   adapter: Swoosh.Adapters.Local
-
-# Configure esbuild (the version is required)
-config :esbuild,
-  version: "0.25.4",
-  telegram_voice_transcriber_ash: [
-    args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
-    cd: Path.expand("../assets", __DIR__),
-    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
-  ]
-
-# Configure tailwind (the version is required)
-config :tailwind,
-  version: "4.3.0",
-  telegram_voice_transcriber_ash: [
-    args: ~w(
-      --input=assets/css/app.css
-      --output=priv/static/assets/css/app.css
-    ),
-    cd: Path.expand("..", __DIR__),
-    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
-  ]
 
 # Configure Elixir's Logger
 config :logger, :default_formatter,
