@@ -1097,6 +1097,40 @@ An undeclared command counts as text, as it did in the source: ex_gram reports
 a declared command with an atom name and an undeclared one with a string, and
 both clauses answer. Verified through the real dispatcher.
 
+### Slice 7 — the outbound proxy (done)
+
+Requested during the work: the deployment VPS cannot reach Google's APIs
+directly, only through an HTTP proxy. The source solved this by injecting
+`ALL_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` into the container, which httpx
+reads; nothing in the Elixir HTTP stack does.
+
+`TelegramVoiceTranscriberAsh.Proxy` turns the same four `PROXY_*` variables
+into Req `connect_options` — `{:http, host, port}` plus a
+`proxy-authorization` header when credentials are given — and into the
+`conn_opts` shape Sentry's own Finch pool wants. Unset `PROXY_HOST` means an
+empty list everywhere, so call sites splice it in unconditionally.
+
+**Scope, and why it is not everything.** Gemini, OpenAI, ElevenLabs and Sentry
+are proxied. Telegram is not: ex_gram's adapter always sets its own
+`connect_options`, and Req raises on `:finch` together with `:connect_options`,
+so it will accept neither a proxied pool nor proxied connect options. Reaching
+Telegram through a proxy means vendoring that ~60-line adapter — the upgrade
+path is written down in the module, and `.env.example` states the exclusion
+plainly. The first attempt did route Telegram too; a test caught the conflict
+before it could ship.
+
+**Verification**
+
+| Step | Result |
+|---|---|
+| `mix format`, `mix compile --warnings-as-errors` | passed |
+| `mix test` | passed, 97/97 |
+| A real proxy — a plug answering absolute-form requests — sees a request that never touched the target host | passed |
+| Credentials arrive as `proxy-authorization: basic …` | passed |
+| A Gemini call opens a `CONNECT generativelanguage.googleapis.com` against the proxy rather than resolving Google itself | passed |
+| The same transport options in the Finch shape Sentry needs | passed |
+| Against a real proxy and real Google credentials | **not verified** — neither is available here |
+
 ## 17. What is left
 
 Everything in sections 1-10 that the source does is now implemented, with one

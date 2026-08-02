@@ -3,6 +3,7 @@ defmodule TelegramVoiceTranscriberAsh.Transcribing.Engines.ElevenLabs do
 
   @behaviour TelegramVoiceTranscriberAsh.Transcribing.Engine
 
+  alias TelegramVoiceTranscriberAsh.Proxy
   alias TelegramVoiceTranscriberAsh.Settings
 
   @url "https://api.elevenlabs.io/v1/speech-to-text"
@@ -15,13 +16,15 @@ defmodule TelegramVoiceTranscriberAsh.Transcribing.Engines.ElevenLabs do
 
       api_key ->
         Req.post(
-          url: @url,
-          headers: [{"xi-api-key", api_key}],
-          form_multipart: [
-            file: {audio, filename: "audio", content_type: mime_type},
-            model_id: model
-          ],
-          receive_timeout: 120_000
+          [
+            url: @url,
+            headers: [{"xi-api-key", api_key}],
+            form_multipart: [
+              file: {audio, filename: "audio", content_type: mime_type},
+              model_id: model
+            ],
+            receive_timeout: 120_000
+          ] ++ Proxy.options()
         )
         |> handle()
     end

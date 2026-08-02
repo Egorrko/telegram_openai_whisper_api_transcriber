@@ -14,6 +14,7 @@ defmodule TelegramVoiceTranscriberAsh.Transcribing.Engines.Gemini do
 
   @behaviour TelegramVoiceTranscriberAsh.Transcribing.Engine
 
+  alias TelegramVoiceTranscriberAsh.Proxy
   alias TelegramVoiceTranscriberAsh.Settings
 
   @base_url "https://generativelanguage.googleapis.com/v1beta/models"
@@ -38,20 +39,22 @@ defmodule TelegramVoiceTranscriberAsh.Transcribing.Engines.Gemini do
 
   defp post(api_key, model, audio, mime_type) do
     Req.post(
-      url: "#{@base_url}/#{model}:generateContent",
-      headers: [{"x-goog-api-key", api_key}],
-      json: %{
-        contents: [
-          %{
-            parts: [
-              %{text: prompt()},
-              %{inline_data: %{mime_type: mime_type, data: Base.encode64(audio)}}
-            ]
-          }
-        ],
-        generationConfig: %{response_mime_type: "application/json"}
-      },
-      receive_timeout: 120_000
+      [
+        url: "#{@base_url}/#{model}:generateContent",
+        headers: [{"x-goog-api-key", api_key}],
+        json: %{
+          contents: [
+            %{
+              parts: [
+                %{text: prompt()},
+                %{inline_data: %{mime_type: mime_type, data: Base.encode64(audio)}}
+              ]
+            }
+          ],
+          generationConfig: %{response_mime_type: "application/json"}
+        },
+        receive_timeout: 120_000
+      ] ++ Proxy.options()
     )
   end
 

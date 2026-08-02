@@ -3,6 +3,7 @@ defmodule TelegramVoiceTranscriberAsh.Transcribing.Engines.OpenAI do
 
   @behaviour TelegramVoiceTranscriberAsh.Transcribing.Engine
 
+  alias TelegramVoiceTranscriberAsh.Proxy
   alias TelegramVoiceTranscriberAsh.Settings
 
   @url "https://api.openai.com/v1/audio/transcriptions"
@@ -15,14 +16,16 @@ defmodule TelegramVoiceTranscriberAsh.Transcribing.Engines.OpenAI do
 
       api_key ->
         Req.post(
-          url: @url,
-          auth: {:bearer, api_key},
-          form_multipart: [
-            file: {audio, filename: "audio", content_type: mime_type},
-            model: model,
-            response_format: "text"
-          ],
-          receive_timeout: 120_000
+          [
+            url: @url,
+            auth: {:bearer, api_key},
+            form_multipart: [
+              file: {audio, filename: "audio", content_type: mime_type},
+              model: model,
+              response_format: "text"
+            ],
+            receive_timeout: 120_000
+          ] ++ Proxy.options()
         )
         |> handle()
     end

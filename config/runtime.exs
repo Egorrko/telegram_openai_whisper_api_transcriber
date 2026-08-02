@@ -66,6 +66,23 @@ if config_env() != :test do
     config :ex_gram, base_url: base_url
   end
 
+  # Outbound proxy. The source injected ALL_PROXY/HTTP_PROXY/HTTPS_PROXY and let
+  # httpx read them; nothing in the Elixir HTTP stack does, so the same four
+  # variables are turned into a Finch pool every outbound call uses.
+  if proxy_host = System.get_env("PROXY_HOST") do
+    proxy = [
+      host: proxy_host,
+      port: String.to_integer(System.get_env("PROXY_PORT") || "8080"),
+      username: System.get_env("PROXY_USERNAME"),
+      password: System.get_env("PROXY_PASSWORD")
+    ]
+
+    config :telegram_voice_transcriber_ash, :proxy, proxy
+
+    # Sentry runs its own Finch pool and needs telling separately.
+    config :sentry, finch_pool_opts: TelegramVoiceTranscriberAsh.Proxy.pool_options(proxy)
+  end
+
   # AshAdmin and Oban Web: unreachable (404) until credentials are configured.
   if user = System.get_env("OPERATOR_USERNAME") do
     config :telegram_voice_transcriber_ash, :operator_console_auth,
