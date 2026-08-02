@@ -1148,6 +1148,43 @@ Operational note recorded in the README: only one process may poll a given bot
 token, so the old deployment has to stop before this one starts, or the test
 has to use a second bot.
 
+### Slice 9 — the self-hosted Bot API server (done)
+
+The compose service the first pass left out, and the two code paths it implies.
+
+- **`docker-compose.yml` runs `aiogram/telegram-bot-api:10.2`** with
+  `TELEGRAM_LOCAL=true`, writing to a 500 MB tmpfs volume the bot container
+  mounts at the same path — the paths the server reports are absolute.
+- **Downloads come off disk.** When `get_file` answers with an absolute path
+  rather than a relative one, the pipeline reads the file and deletes it in the
+  same step. The source deleted it in a `finally` block at the end of the
+  pipeline; deleting right after reading frees the capped tmpfs sooner and
+  removes the need to thread the path through the pipeline at all.
+- **Gemini switches to the Files API above 10 MB.** `generateContent` caps a
+  request at roughly 20 MB and base64 inflates by a third, so inline audio
+  would have made the whole exercise pointless: the reason to self-host a Bot
+  API server is files the public one refuses to serve. The upload uses the
+  resumable protocol, waits for the file to leave `PROCESSING`, and deletes it
+  once the transcript is back — the source uploaded every file and never
+  deleted any.
+
+Operationally this needs `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` from
+my.telegram.org and a one-time `logout` of the token against the public API,
+both documented in the README. Leaving `TELEGRAM_BOT_API_URL` unset and
+dropping the service returns to the public API with its 20 MB cap; nothing else
+changes.
+
+**Verification**
+
+| Step | Result |
+|---|---|
+| `mix test` | passed, 104/104 |
+| Small audio: one inline request, prompt and base64 payload as expected | passed |
+| 11 MB audio: start, upload-and-finalize, `generateContent` referencing the returned `file_uri`, then delete | passed |
+| A `PROCESSING` upload is polled until active | passed |
+| A local Bot API path is read from disk, transcribed, and the file removed | passed |
+| Against a real self-hosted server | **not verified** — needs `TELEGRAM_API_ID`/`HASH` and a logged-out token |
+
 ## 17. What is left
 
 Everything in sections 1-10 that the source does is now implemented, with one

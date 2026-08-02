@@ -78,13 +78,34 @@ docker compose up -d --build
 docker compose logs -f bot
 ```
 
-Compose brings up Postgres and the bot; migrations run on every boot, which is
-safe because they are idempotent. `DATABASE_URL` is supplied by compose, so the
-one in `.env` is ignored there. The console is published on `127.0.0.1:4000`
-only — reach it over an SSH tunnel, or drop the port mapping entirely.
+Compose brings up Postgres, a self-hosted Bot API server and the bot;
+migrations run on every boot, which is safe because they are idempotent.
+`DATABASE_URL` is supplied by compose, so the one in `.env` is ignored there.
+The console is published on `127.0.0.1:4000` only — reach it over an SSH
+tunnel, or drop the port mapping entirely.
 
 **Only one process may poll a given bot token.** Stop the old deployment before
 starting this one, or test against a second bot from @BotFather.
+
+### The self-hosted Bot API server
+
+The public Bot API refuses to serve a file over 20 MB, which is why the source
+deployment ran its own. `docker-compose.yml` keeps that: `telegram-bot-api`
+writes downloads to a 500 MB tmpfs volume the bot container shares, and the bot
+reads them off disk and deletes them instead of fetching over the network.
+
+It needs `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` from
+[my.telegram.org](https://my.telegram.org), `TELEGRAM_BOT_API_URL` pointing at
+it, and the token logged out of the public API **once**:
+
+```bash
+curl -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/logout"
+```
+
+That is one-way per session: to go back to the public API, log out of the local
+server the same way. To skip all of this, leave `TELEGRAM_BOT_API_URL` unset and
+remove the `telegram-bot-api` service — everything else works unchanged, with
+the 20 MB cap.
 
 The generated Dockerfile was adjusted for this stack: the builder installs
 `nodejs`/`npm`, `npm install` runs at the project root after `mix deps.get`,

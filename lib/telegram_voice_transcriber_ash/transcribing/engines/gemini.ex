@@ -3,13 +3,14 @@ defmodule TelegramVoiceTranscriberAsh.Transcribing.Engines.Gemini do
   Google Gemini transcription. Returns the two-field
   `{"short": ..., "full": ...}` JSON contract described by `prompt/0`.
 
-  The source uploaded every file to the Files API and never deleted it; this
-  sends the audio inline instead, which is one request instead of two and
-  leaves nothing behind.
+  Small audio is sent inline, in one request. Above `#{div(10 * 1024 * 1024, 1024 * 1024)} MB` it
+  goes through the Files API first, because `generateContent` caps a whole
+  request at roughly 20 MB and base64 inflates the payload by a third. That
+  matters only behind a self-hosted Bot API server — the public one will not
+  serve a file that large in the first place.
 
-  ponytail: inline audio caps a request at roughly 20 MB — the same limit the
-  public Bot API imposes on downloads. Switch to the Files API if a local Bot
-  API server starts feeding larger files through.
+  The source always used the Files API, and never deleted what it uploaded.
+  Uploads here are removed as soon as the transcript comes back.
   """
 
   @behaviour TelegramVoiceTranscriberAsh.Transcribing.Engine
@@ -17,12 +18,17 @@ defmodule TelegramVoiceTranscriberAsh.Transcribing.Engines.Gemini do
   alias TelegramVoiceTranscriberAsh.Proxy
   alias TelegramVoiceTranscriberAsh.Settings
 
-  @base_url "https://generativelanguage.googleapis.com/v1beta/models"
+  @default_base_url "https://generativelanguage.googleapis.com"
+  @inline_limit 10 * 1024 * 1024
+  @upload_state_attempts 10
+  @upload_state_delay 500
 
   @impl true
   def transcribe(audio, mime_type, model) do
     with {:ok, api_key} <- api_key(),
-         {:ok, %{status: 200, body: body}} <- post(api_key, model, audio, mime_type) do
+         {:ok, part, cleanup} <- audio_part(api_key, audio, mime_type),
+         {:ok, %{status: 200, body: body}} <- generate(api_key, model, part) do
+      cleanup.()
       extract_text(body)
     else
       {:ok, %{status: status, body: body}} -> {:error, "Gemini HTTP #{status}: #{inspect(body)}"}
@@ -37,25 +43,104 @@ defmodule TelegramVoiceTranscriberAsh.Transcribing.Engines.Gemini do
     end
   end
 
-  defp post(api_key, model, audio, mime_type) do
-    Req.post(
-      [
-        url: "#{@base_url}/#{model}:generateContent",
-        headers: [{"x-goog-api-key", api_key}],
-        json: %{
-          contents: [
-            %{
-              parts: [
-                %{text: prompt()},
-                %{inline_data: %{mime_type: mime_type, data: Base.encode64(audio)}}
-              ]
-            }
-          ],
-          generationConfig: %{response_mime_type: "application/json"}
-        },
-        receive_timeout: 120_000
-      ] ++ Proxy.options()
+  defp audio_part(_api_key, audio, mime_type) when byte_size(audio) <= @inline_limit do
+    {:ok, %{inline_data: %{mime_type: mime_type, data: Base.encode64(audio)}}, fn -> :ok end}
+  end
+
+  defp audio_part(api_key, audio, mime_type) do
+    with {:ok, file} <- upload(api_key, audio, mime_type),
+         {:ok, file} <- await_active(api_key, file) do
+      {:ok, %{file_data: %{mime_type: mime_type, file_uri: file["uri"]}},
+       fn -> delete_file(api_key, file) end}
+    end
+  end
+
+  defp generate(api_key, model, part) do
+    request(
+      url: "#{base_url()}/v1beta/models/#{model}:generateContent",
+      headers: [{"x-goog-api-key", api_key}],
+      json: %{
+        contents: [%{parts: [%{text: prompt()}, part]}],
+        generationConfig: %{response_mime_type: "application/json"}
+      }
     )
+  end
+
+  # The Files API resumable protocol: announce the upload, then send the bytes
+  # to the URL it hands back.
+  defp upload(api_key, audio, mime_type) do
+    start =
+      request(
+        url: "#{base_url()}/upload/v1beta/files",
+        headers: [
+          {"x-goog-api-key", api_key},
+          {"x-goog-upload-protocol", "resumable"},
+          {"x-goog-upload-command", "start"},
+          {"x-goog-upload-header-content-length", Integer.to_string(byte_size(audio))},
+          {"x-goog-upload-header-content-type", mime_type}
+        ],
+        json: %{file: %{display_name: "voice"}}
+      )
+
+    with {:ok, %{status: 200} = response} <- start,
+         [upload_url | _] <- Req.Response.get_header(response, "x-goog-upload-url"),
+         {:ok, %{status: 200, body: %{"file" => file}}} <-
+           request(
+             url: upload_url,
+             headers: [
+               {"x-goog-upload-offset", "0"},
+               {"x-goog-upload-command", "upload, finalize"}
+             ],
+             body: audio
+           ) do
+      {:ok, file}
+    else
+      [] ->
+        {:error, "Gemini did not return an upload URL"}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, "Gemini upload HTTP #{status}: #{inspect(body)}"}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  # A freshly uploaded file is unusable until it finishes processing.
+  defp await_active(api_key, file, attempts \\ @upload_state_attempts)
+
+  defp await_active(_api_key, %{"state" => "ACTIVE"} = file, _attempts), do: {:ok, file}
+
+  defp await_active(_api_key, %{"state" => state} = file, 0),
+    do: {:error, "Gemini file #{file["name"]} stuck in #{state}"}
+
+  defp await_active(api_key, file, attempts) do
+    Process.sleep(@upload_state_delay)
+
+    case request(method: :get, url: "#{base_url()}/v1beta/#{file["name"]}", headers: key(api_key)) do
+      {:ok, %{status: 200, body: refreshed}} -> await_active(api_key, refreshed, attempts - 1)
+      {:ok, %{status: status}} -> {:error, "Gemini file lookup HTTP #{status}"}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp delete_file(api_key, file) do
+    request(method: :delete, url: "#{base_url()}/v1beta/#{file["name"]}", headers: key(api_key))
+    :ok
+  end
+
+  defp key(api_key), do: [{"x-goog-api-key", api_key}]
+
+  defp request(options) do
+    options
+    |> Keyword.put_new(:method, :post)
+    |> Keyword.put_new(:receive_timeout, 120_000)
+    |> Kernel.++(Proxy.options())
+    |> Req.request()
+  end
+
+  defp base_url do
+    Application.get_env(:telegram_voice_transcriber_ash, :gemini_base_url, @default_base_url)
   end
 
   defp extract_text(%{"candidates" => [%{"content" => %{"parts" => parts}} | _]}) do

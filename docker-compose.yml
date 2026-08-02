@@ -1,4 +1,20 @@
 services:
+  # A self-hosted Bot API server. The public API caps downloads at 20 MB; this
+  # lifts that, and hands the bot a path on the shared volume instead of a URL.
+  #
+  # It needs TELEGRAM_API_ID and TELEGRAM_API_HASH from my.telegram.org, and
+  # the token must be logged out of the public API once before it can be used
+  # here — see the README.
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:10.2
+    env_file:
+      - .env
+    environment:
+      TELEGRAM_LOCAL: "true"
+    volumes:
+      - telegram-bot-api-data:/var/lib/telegram-bot-api
+    restart: always
+
   db:
     image: postgres:17-alpine
     environment:
@@ -27,10 +43,25 @@ services:
       # The operator console. Drop this to keep it off the public internet and
       # reach it over an SSH tunnel instead.
       - "127.0.0.1:4000:4000"
+    volumes:
+      # The same volume the Bot API server writes downloads to, mounted at the
+      # same path, because the paths it reports are absolute.
+      - telegram-bot-api-data:/var/lib/telegram-bot-api
     depends_on:
       db:
         condition: service_healthy
+      telegram-bot-api:
+        condition: service_started
     restart: always
 
 volumes:
   pgdata:
+
+  # Scratch space, not storage: downloads live here for seconds. Capped so a
+  # leak cannot fill the host disk.
+  telegram-bot-api-data:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=500m"

@@ -97,11 +97,30 @@ defmodule TelegramVoiceTranscriberAsh.Bot.Pipeline do
   end
 
   defp download(media) do
-    with {:ok, file} <- ExGram.get_file(media.file_id, token: Settings.telegram_token()),
-         url = ExGram.File.file_url(file, token: Settings.telegram_token()),
-         {:ok, %{status: 200, body: body}} <- Req.get(url, receive_timeout: 60_000) do
-      {:ok, body}
-    else
+    with {:ok, file} <- ExGram.get_file(media.file_id, token: Settings.telegram_token()) do
+      fetch(file)
+    end
+  end
+
+  # A self-hosted Bot API server reports an absolute path on the volume it
+  # shares with this container, not a URL. Reading and deleting in one step
+  # frees the tmpfs immediately instead of at the end of the pipeline, which is
+  # where the source did it.
+  defp fetch(%{file_path: "/" <> _ = path}) do
+    result = File.read(path)
+    File.rm(path)
+
+    case result do
+      {:ok, audio} -> {:ok, audio}
+      {:error, reason} -> {:error, "Не удалось прочитать #{path}: #{:file.format_error(reason)}"}
+    end
+  end
+
+  defp fetch(file) do
+    url = ExGram.File.file_url(file, token: Settings.telegram_token())
+
+    case Req.get(url, receive_timeout: 60_000) do
+      {:ok, %{status: 200, body: body}} -> {:ok, body}
       {:ok, %{status: status}} -> {:error, "Не удалось скачать файл: HTTP #{status}"}
       {:error, _} = error -> error
     end

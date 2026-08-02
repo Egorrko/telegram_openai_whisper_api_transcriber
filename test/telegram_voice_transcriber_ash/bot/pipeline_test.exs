@@ -112,6 +112,20 @@ defmodule TelegramVoiceTranscriberAsh.Bot.PipelineTest do
     assert %{blocks: [%{type: "blockquote", blocks: [%{text: "Привет, мир!"}]}]} = rich
   end
 
+  test "a self-hosted Bot API server's file is read from disk and removed" do
+    engine_returns({:ok, "с диска"})
+
+    path = Path.join(System.tmp_dir!(), "local-#{System.unique_integer([:positive])}.oga")
+    File.write!(path, "local audio bytes")
+    ExGram.Test.stub(:get_file, %{file_id: "file-1", file_path: path})
+
+    assert :ok = Pipeline.run(message(), media(60))
+
+    assert_received {:transcribed, "local audio bytes", "audio/ogg"}
+    refute File.exists?(path)
+    assert [%{status: :succeeded}] = logs()
+  end
+
   test "a failed transcription charges nothing but is still recorded (R8)" do
     engine_returns({:error, "движок недоступен"})
 

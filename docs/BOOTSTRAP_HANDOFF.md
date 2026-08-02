@@ -278,12 +278,12 @@ Bot API 10.2 rich-message gap, and the failure path — every identified risk.
    a stopped bot. Note the target schema differs deliberately — UUID keys,
    `status` instead of the `-1` sentinel — so it is a transformation, not a
    copy.
-7. **`TELEGRAM_BOT_API_URL` is only half honored.** ex_gram sends API calls to
-   it, but file downloads still build a public-API URL through
-   `ExGram.File.file_url/2`, and the local server's downloaded-file cleanup has
-   no equivalent yet. Anyone switching to a local Bot API server must finish
-   this. It is also the only thing standing between the Gemini engine and files
-   larger than about 20 MB, since audio is sent inline.
+7. ~~**`TELEGRAM_BOT_API_URL` is only half honored.**~~ **Done.** A self-hosted
+   Bot API server is in `docker-compose.yml`, downloads come off the shared
+   tmpfs volume and are deleted after reading, and Gemini switches to the Files
+   API above 10 MB so the larger files such a server exists to fetch actually
+   reach the engine. What remains is operational: `TELEGRAM_API_ID` /
+   `TELEGRAM_API_HASH`, and the one-time `logout` against the public API.
 8. **A media type nobody handles is still silently ignored** — a document, a
    video file, a sticker. Every kind the source handled is now implemented, so
    this is only a question of whether an unsupported type deserves a reply.
