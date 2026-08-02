@@ -687,9 +687,12 @@ Every source setting becomes runtime config in `config/runtime.exs`, read from t
 surprising, but it is the existing operational contract and changing it would break every
 deployed allow-list.
 
-## 13. First vertical slice — done
+## 13. First vertical slice — done, implemented
 
 **Transcribe a voice message in a private chat, end to end, metered.**
+
+> **Status: implemented.** See section 16 for what shipped, what it deviates
+> from, and what was verified.
 
 This is scenario 3.1 with the group, forwarding and payment paths deliberately excluded. It is
 the smallest slice that exercises the bot transport, the metering ledger, an external engine,
@@ -820,3 +823,87 @@ literal derivation of the directory name.
    path proves painful, the fallback is to reconsider ex_gram entirely and write a small
    Bot API client over Req — the polling loop and update dispatch are the only parts that
    would need replacing.
+
+## 16. Slice log
+
+### Slice 1 — transcribe a voice message in a private chat, metered (done)
+
+Section 13, implemented as described, with the deviations below. Also covers
+audio files in private chats, since it is the same handler shape; video notes
+are not covered, because they need the ffmpeg step that section 13 excludes.
+
+**What shipped**
+
+| Layer | Modules |
+|---|---|
+| Domain | `Metering` — `Subscriber` (`:find_or_register`, `:reserve`, `:apply_free_reset`, `:mark_warned`, `:debit`), `TranscriptionLog` (`:record`) |
+| Migration | `priv/repo/migrations/*_add_metering_ledger.exs` — generated with `mix ash.codegen` |
+| Pipeline | `Transcribing.ResponseParser`, `Transcribing.RichMessage`, `Transcribing.Engine` + `Engines.{Gemini,OpenAI,ElevenLabs}` |
+| Bot | `Bot` (ex_gram, `/start`, `/stats`, private voice and audio), `Bot.Pipeline`, `Bot.Identity`, `Bot.Messages` |
+| Config | `Settings`, the bot block in `config/runtime.exs`, `.env.example` |
+| Console | AshAdmin at `/admin` and Oban Web at `/oban`, both behind HTTP basic auth |
+
+**Deviations from the plan, and why**
+
+1. **Rich messages go through ex_gram, not hand-rolled `Req` calls.** Section 11
+   proposed building `sendRichMessage` and `editMessageText` by hand because
+   ex_gram 0.67 models Bot API 10.1. In practice ex_gram already exposes both
+   methods and only its `InputRichMessage` *struct* is behind; adding the
+   `blocks` field to that struct is enough, because ex_gram serialises the
+   struct as a plain map. Verified on the wire against a local echo server:
+   the JSON is byte-for-byte the shape the source's aiogram payload produces.
+   The hack is isolated in `RichMessage.input_rich_message/1`.
+2. **Gemini sends audio inline instead of uploading to the Files API.** One
+   request instead of two, and nothing is left behind on Google's side — the
+   source never deleted its uploads. Ceiling: roughly 20 MB per request, which
+   is also the public Bot API's download cap.
+3. **`:reserve` and `:debit` are not one locked transaction.** Holding a row
+   lock across a multi-second engine call is worse than the problem it solves.
+   Instead `:debit` is a single atomic `UPDATE` that clamps both balances at
+   zero, which is what actually fixes D1: balances can no longer go negative.
+   The residue is that a concurrent burst can overspend by at most one
+   message's duration. A reservation row would close that; nothing suggests it
+   is worth one yet.
+4. **`:reserve` returns `:ok | :warn | :exceeded`.** The source's `"success"`
+   and `"warned"` both continue and differ only in whether the warning is
+   shown, so they collapse into `:ok`.
+5. **The free-allowance default lives in the resource**, not in every creation
+   path, so the section 4 discrepancy (model default `0` vs the real default)
+   does not survive the port.
+
+**Defect found while implementing**
+
+- **D6 — the quota messages mislabel the balance.** `limit_exceeded_message`
+  and `limit_warning_message` print the *remaining* balance under the label
+  "Использовано" (`src/bot/messages.py:51-78`), so a user with nothing left
+  reads "Использовано: 0/30 минут". Ported verbatim: it is user-visible copy,
+  and changing it is a product decision, not a port.
+
+**Verification**
+
+| Step | Result |
+|---|---|
+| `mix format` | passed |
+| `mix compile --warnings-as-errors` | passed |
+| `mix test` | passed, 51/51 |
+| `mix ash.migrate` | passed |
+| Dev server, `/` | passed, 200 |
+| `/admin`, `/oban` without credentials | passed, 401 |
+| `/admin`, `/oban` with credentials | passed, 200; AshAdmin lists the Metering domain |
+| Rich-message JSON on the wire, through the real Req adapter | passed — `{"rich_message":{"blocks":[{"type":"blockquote",...}]}}` |
+| Live round trip against a real bot token and `GEMINI_API_KEY` | **not verified** — no credentials are available in this environment |
+| Release and Docker rebuild | **not run** — no dependency, asset or Dockerfile change in this slice |
+
+**Product decisions taken during this slice**
+
+- The LiveVue operator console (open question 2) is **deferred**. The console
+  is AshAdmin plus Oban Web, closed behind HTTP basic auth
+  (`OPERATOR_USERNAME` / `OPERATOR_PASSWORD`, 404 when unset). Section 12's
+  `/subscribers`, `/payments` and `/engines` screens are not being built for
+  now.
+
+**Next slice.** Telegram Stars payments (scenario 3.6): `Metering.Payment`
+with a unique `charge_id` and an idempotent `:credit`, `/payment N`,
+`/paysupport`, and the `pre_checkout_query` answer. It is the only remaining
+path that touches the ledger, and it closes defect D2. Group transcription
+(3.4), forwarding (3.5) and video notes are each smaller and independent.

@@ -1,4 +1,14 @@
 import Config
+
+# The bot is exercised by calling its modules, never by polling Telegram.
+config :telegram_voice_transcriber_ash,
+  telegram_token: "test-token",
+  start_bot: false,
+  # No point waiting out the retry backoff in tests.
+  retry_delay_ms: 0
+
+config :ex_gram, adapter: ExGram.Adapter.Test, token: "test-token"
+
 config :telegram_voice_transcriber_ash, Oban, testing: :manual
 config :telegram_voice_transcriber_ash, token_signing_secret: "6BBV68Z4nVedg2xa7JClRjIL/3JBGf0M"
 config :bcrypt_elixir, log_rounds: 1

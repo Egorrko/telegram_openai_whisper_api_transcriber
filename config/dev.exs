@@ -55,7 +55,9 @@ config :telegram_voice_transcriber_ash, TelegramVoiceTranscriberAshWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :telegram_voice_transcriber_ash,
   dev_routes: true,
-  token_signing_secret: "VO8UyhCYY/IwRJsiU+DA01k97wW6pyH7"
+  token_signing_secret: "VO8UyhCYY/IwRJsiU+DA01k97wW6pyH7",
+  # /admin and /oban in development; production reads OPERATOR_USERNAME.
+  operator_console_auth: [username: "operator", password: "operator"]
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

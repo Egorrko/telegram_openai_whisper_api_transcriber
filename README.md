@@ -3,11 +3,18 @@
 Phoenix + Ash + LiveVue replatforming target for the Django Telegram voice
 transcription bot.
 
-**This is a bootstrap. No product behavior is implemented yet.** What exists is
-a verified skeleton: the dependency set, the database, the release, and the
-Docker path. The product analysis and the agreed first slice live in
+**Implemented so far: transcribing a voice message in a private chat, metered.**
+A user sends a voice message or audio file, the bot edits its reply in place
+into the transcript, and the audio's duration is charged against the account's
+balance. `/start` and `/stats` work. Group transcription, forwarding to the
+operator and Telegram Stars payments are not built yet.
+
+The product analysis, the slice log and the open questions live in
 [`docs/REPLATFORM_ANALYSIS.md`](docs/REPLATFORM_ANALYSIS.md) and
 [`docs/BOOTSTRAP_HANDOFF.md`](docs/BOOTSTRAP_HANDOFF.md).
+
+The bot starts only when `TELEGRAM_TOKEN` is set; without it the web endpoint
+runs alone. See [`.env.example`](.env.example) for every variable.
 
 ## Development
 
@@ -22,18 +29,18 @@ mix phx.server     # http://localhost:4000
 manifest at `priv/static/.vite/manifest.json`, which only exists after
 `mix assets.build`.
 
-Dev-only routes, mounted behind `:dev_routes` and absent in production:
+The operator console is AshAdmin plus Oban Web, in every environment, behind
+HTTP basic auth. In development the credentials are `operator` / `operator`; in
+production they come from `OPERATOR_USERNAME` / `OPERATOR_PASSWORD`, and both
+routes answer 404 while those are unset.
 
-| Path | What |
-|---|---|
-| `/dev/vue_demo` | LiveVue round-trip demo |
-| `/admin` | AshAdmin |
-| `/oban` | Oban Web |
-| `/dev/dashboard` | Phoenix LiveDashboard |
-| `/dev/mailbox` | Swoosh mailbox preview |
-
-Before exposing any of these in production, put them behind the operator
-session — they show account balances and payment history.
+| Path | What | Where |
+|---|---|---|
+| `/admin` | AshAdmin — accounts, balances, usage log | all environments, basic auth |
+| `/oban` | Oban Web | all environments, basic auth |
+| `/dev/vue_demo` | LiveVue round-trip demo | `:dev_routes` only |
+| `/dev/dashboard` | Phoenix LiveDashboard | `:dev_routes` only |
+| `/dev/mailbox` | Swoosh mailbox preview | `:dev_routes` only |
 
 ## Assets
 

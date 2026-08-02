@@ -11,23 +11,25 @@ defmodule TelegramVoiceTranscriberAsh.Application do
       config: %{metadata: [:file, :line]}
     })
 
-    children = [
-      TelegramVoiceTranscriberAshWeb.Telemetry,
-      TelegramVoiceTranscriberAsh.Repo,
-      {DNSCluster,
-       query: Application.get_env(:telegram_voice_transcriber_ash, :dns_cluster_query) || :ignore},
-      {Oban,
-       AshOban.config(
-         Application.fetch_env!(:telegram_voice_transcriber_ash, :ash_domains),
-         Application.fetch_env!(:telegram_voice_transcriber_ash, Oban)
-       )},
-      {Phoenix.PubSub, name: TelegramVoiceTranscriberAsh.PubSub},
-      # Start a worker by calling: TelegramVoiceTranscriberAsh.Worker.start_link(arg)
-      # {TelegramVoiceTranscriberAsh.Worker, arg},
-      # Start to serve requests, typically the last entry
-      TelegramVoiceTranscriberAshWeb.Endpoint,
-      {AshAuthentication.Supervisor, [otp_app: :telegram_voice_transcriber_ash]}
-    ]
+    children =
+      [
+        TelegramVoiceTranscriberAshWeb.Telemetry,
+        TelegramVoiceTranscriberAsh.Repo,
+        {DNSCluster,
+         query:
+           Application.get_env(:telegram_voice_transcriber_ash, :dns_cluster_query) || :ignore},
+        {Oban,
+         AshOban.config(
+           Application.fetch_env!(:telegram_voice_transcriber_ash, :ash_domains),
+           Application.fetch_env!(:telegram_voice_transcriber_ash, Oban)
+         )},
+        {Phoenix.PubSub, name: TelegramVoiceTranscriberAsh.PubSub},
+        # Start a worker by calling: TelegramVoiceTranscriberAsh.Worker.start_link(arg)
+        # {TelegramVoiceTranscriberAsh.Worker, arg},
+        # Start to serve requests, typically the last entry
+        TelegramVoiceTranscriberAshWeb.Endpoint,
+        {AshAuthentication.Supervisor, [otp_app: :telegram_voice_transcriber_ash]}
+      ] ++ bot_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
@@ -41,6 +43,18 @@ defmodule TelegramVoiceTranscriberAsh.Application do
         )
 
     Supervisor.start_link(children, opts)
+  end
+
+  # The bot only starts when a token is configured, so tests, CI and a bare
+  # `mix phx.server` run without one instead of crash-looping on long polling.
+  defp bot_children do
+    token = TelegramVoiceTranscriberAsh.Settings.telegram_token()
+
+    if token && TelegramVoiceTranscriberAsh.Settings.start_bot?() do
+      [ExGram, {TelegramVoiceTranscriberAsh.Bot, [method: :polling, token: token]}]
+    else
+      []
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration

@@ -23,6 +23,42 @@ end
 config :telegram_voice_transcriber_ash, TelegramVoiceTranscriberAshWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# ---------------------------------------------------------------------------
+# The bot. Every variable below is the one the source Django bot used, so an
+# existing .env keeps working. Unset TELEGRAM_TOKEN leaves the bot stopped.
+#
+# Skipped under :test, where config/test.exs owns these values.
+# ---------------------------------------------------------------------------
+if config_env() != :test do
+  minutes = fn name, default ->
+    String.to_integer(System.get_env(name) || default) * 60
+  end
+
+  config :telegram_voice_transcriber_ash,
+    telegram_token: System.get_env("TELEGRAM_TOKEN"),
+    available_seconds: minutes.("AVAILABLE_MINUTES", "30"),
+    left_warning_seconds: minutes.("LEFT_WARNING_MINUTES", "10"),
+    max_retries: String.to_integer(System.get_env("MAX_RETRIES") || "3"),
+    retry_delay_ms: String.to_integer(System.get_env("RETRY_DELAY") || "1") * 1000,
+    transcription_engine: System.get_env("TRANSCRIPTION_ENGINE") || "gemini-3.5-flash-lite",
+    fallback_transcription_engine: System.get_env("FALLBACK_TRANSCRIPTION_ENGINE"),
+    gemini_api_key: System.get_env("GEMINI_API_KEY"),
+    openai_api_key: System.get_env("OPENAI_API_KEY"),
+    elevenlabs_api_key: System.get_env("ELEVENLABS_API_KEY")
+
+  # A self-hosted telegram-bot-api server lifts the 20 MB download cap.
+  if base_url = System.get_env("TELEGRAM_BOT_API_URL") do
+    config :ex_gram, base_url: base_url
+  end
+
+  # AshAdmin and Oban Web: unreachable (404) until credentials are configured.
+  if user = System.get_env("OPERATOR_USERNAME") do
+    config :telegram_voice_transcriber_ash, :operator_console_auth,
+      username: user,
+      password: System.get_env("OPERATOR_PASSWORD") || raise("Missing `OPERATOR_PASSWORD`!")
+  end
+end
+
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
   config :telegram_voice_transcriber_ash, TelegramVoiceTranscriberAshWeb.Endpoint,

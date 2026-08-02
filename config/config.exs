@@ -21,6 +21,10 @@ config :phoenix_vite, PhoenixVite.Npm,
 
 config :ash_oban, pro?: false
 
+# Req, not the Tesla default: Tesla is not a dependency of this project, and
+# the Req adapter shares the HTTP stack the transcription engines use.
+config :ex_gram, adapter: ExGram.Adapter.Req
+
 config :telegram_voice_transcriber_ash, Oban,
   engine: Oban.Engines.Basic,
   notifier: Oban.Notifiers.Postgres,
@@ -82,7 +86,7 @@ config :spark,
 config :telegram_voice_transcriber_ash,
   ecto_repos: [TelegramVoiceTranscriberAsh.Repo],
   generators: [timestamp_type: :utc_datetime],
-  ash_domains: [TelegramVoiceTranscriberAsh.Accounts]
+  ash_domains: [TelegramVoiceTranscriberAsh.Accounts, TelegramVoiceTranscriberAsh.Metering]
 
 # Configure the endpoint
 config :telegram_voice_transcriber_ash, TelegramVoiceTranscriberAshWeb.Endpoint,

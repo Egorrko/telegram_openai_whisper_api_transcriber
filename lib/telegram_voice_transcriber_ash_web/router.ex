@@ -16,6 +16,25 @@ defmodule TelegramVoiceTranscriberAshWeb.Router do
     plug :load_from_session
   end
 
+  # The operator console is AshAdmin plus Oban Web, nothing else: the product
+  # has one operator and no end-user web surface. Both are closed behind HTTP
+  # basic auth, and stay 404 until credentials are configured.
+  pipeline :operator_console do
+    plug :operator_basic_auth
+  end
+
+  defp operator_basic_auth(conn, _opts) do
+    case Application.get_env(:telegram_voice_transcriber_ash, :operator_console_auth) do
+      nil ->
+        conn
+        |> Plug.Conn.send_resp(:not_found, "")
+        |> Plug.Conn.halt()
+
+      credentials ->
+        Plug.BasicAuth.basic_auth(conn, credentials)
+    end
+  end
+
   pipeline :api do
     plug :accepts, ["json"]
     plug :load_from_bearer
@@ -102,21 +121,19 @@ defmodule TelegramVoiceTranscriberAshWeb.Router do
       live "/vue_demo", TelegramVoiceTranscriberAshWeb.VueDemoLive
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
-
-    scope "/" do
-      pipe_through :browser
-
-      oban_dashboard("/oban")
-    end
   end
 
-  if Application.compile_env(:telegram_voice_transcriber_ash, :dev_routes) do
+  scope "/" do
+    pipe_through [:browser, :operator_console]
+
+    oban_dashboard("/oban")
+  end
+
+  scope "/admin" do
     import AshAdmin.Router
 
-    scope "/admin" do
-      pipe_through :browser
+    pipe_through [:browser, :operator_console]
 
-      ash_admin "/"
-    end
+    ash_admin "/"
   end
 end

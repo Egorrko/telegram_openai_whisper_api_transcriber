@@ -31,3 +31,6 @@ telegram_voice_transcriber_ash-*.tar
 # In case you use Node.js/npm, you want to ignore these.
 npm-debug.log
 node_modules/
+
+# Local runtime environment; .env.example is the checked-in template.
+.env

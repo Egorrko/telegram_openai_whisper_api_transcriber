@@ -193,9 +193,14 @@ Those need live secrets and are the first slice's job.
 
 Docker containers and the network created for verification were removed afterwards.
 
-## First vertical slice
+## First vertical slice — implemented
 
 **Transcribe a voice message in a private chat, end to end, metered.**
+
+> **Implemented.** What shipped, how it deviates from the plan below, what was
+> verified and what the next slice is are recorded in
+> [`REPLATFORM_ANALYSIS.md`](REPLATFORM_ANALYSIS.md) section 16, which is the
+> running slice log from here on.
 
 Scenario 3.1 of the analysis, with the group, forwarding and payment paths excluded. It is the
 smallest slice that exercises the bot transport, the metering ledger, an external engine, the
@@ -229,41 +234,61 @@ Bot API 10.2 rich-message gap, and the failure path — every identified risk.
   monthly-reset cron, the local Bot API server, ffmpeg video-note conversion, and the SQLite
   data import.
 
+## Decisions taken since the bootstrap
+
+1. **The LiveVue operator console is deferred** (was open question 2). The
+   console is AshAdmin at `/admin` plus Oban Web at `/oban`, both behind HTTP
+   basic auth — `OPERATOR_USERNAME` / `OPERATOR_PASSWORD`, and both routes
+   answer 404 while they are unset. Section 12 of the analysis still describes
+   the fuller console; treat it as parked, not planned.
+2. **The Bot API 10.2 gap is closed inside ex_gram** (was open questions 1
+   and 9). Its `sendRichMessage` and `editMessageText` already accept a
+   `rich_message` parameter and serialise the struct as a plain map, so only
+   the `blocks` field had to be added to the struct — no hand-rolled `Req`
+   calls, no second Bot API client. The payload was verified byte-for-byte on
+   the wire against a local echo server.
+
 ## Open questions
 
-1. **Rich messages are the top technical risk.** ex_gram 0.67.0 tracks Bot API 10.1, whose
-   `InputRichMessage` carries `html`/`markdown`. The source depends on the `blocks` array
-   added in Bot API 10.2 (14 July 2026). Plan: ex_gram for polling, dispatch, file download
-   and ordinary sends; hand-rolled JSON over Req for `sendRichMessage` and `editMessageText`
-   with `rich_message`, isolated in one module. Verify against a live bot early.
-2. **Is the LiveVue operator console wanted at all?** `STACK_POLICY.md` mandates LiveVue for
-   the whole UI, but the source has no UI — the console is a proposal, not a migration. It may
-   be over-scoped for a single-operator bot; the honest alternative is AshAdmin plus Oban Web
-   and nothing else. Product decision.
-3. **Should transcription become a durable Oban job?** It fixes the stranded-"Распознаю..."
-   failure and enables real backoff, but changes the latency profile and moves progress edits
-   into a worker. Recommended, but it is a behavior change, not a port.
-4. **Payment idempotency and `drop_pending_updates`.** The source sets
-   `drop_pending_updates=True`, discarding payments that arrived while the bot was down, and
-   `Payment.payment_id` is not unique. Fixing this means dropping the flag and making the
-   credit idempotent on `charge_id`. Confirm no operational reason required that flag.
-5. **The four undocumented `PROXY_*` variables** are required by the source's
-   `docker-compose.yml` but absent from its `.env.example`. Confirm whether the proxy is still
-   needed.
-6. **Should `/model` survive?** It leaks engine configuration to every user. The console's
-   `/engines` screen covers the operator need.
-7. **Data import timing.** A one-shot SQLite → Postgres script is trivial but must run against
-   a stopped bot to avoid split-brain balances. Confirm a maintenance window.
-8. **The `req` override is load-bearing.** `{:req, "~> 0.7", override: true}` keeps a HIGH
-   CVE out of the tree while still using ex_gram. Do not "clean it up". Remove it only when
-   ex_gram widens its constraint, and re-run the adapter smoke test when you do.
-9. **Fallback if the 10.2 path proves painful**: reconsider ex_gram entirely and write a small
-   Bot API client over Req. Only the polling loop and update dispatch would need replacing.
+1. **Nothing has been verified against real Telegram or a real engine.** There
+   are no credentials in this environment — no bot token, no `GEMINI_API_KEY`.
+   Everything below the network boundary is covered by tests, but Telegram's
+   own acceptance of the 10.2 `blocks` payload is still unconfirmed. First
+   thing to do with a token in hand: send one short voice message and one long
+   one, and confirm the block quotation and the expandable details block.
+2. **Should transcription become a durable Oban job?** Unchanged, and now
+   concrete: a restart mid-pipeline still strands the user on "Распознаю...".
+   Recommended, but it is a behavior change, not a port.
+3. **Payment idempotency and `drop_pending_updates`.** The next slice. Fixing
+   defect D2 means a unique `charge_id`, an idempotent credit, and dropping the
+   flag. Confirm no operational reason required it.
+4. **The four undocumented `PROXY_*` variables** are documented in
+   `.env.example` but still read by no code. Confirm whether the proxy is
+   needed before the first deployment.
+5. **Should `/model` survive?** It leaks engine configuration to every user
+   (D4). Not ported so far. AshAdmin covers the operator need, so the honest
+   default is to leave it out — confirm.
+6. **Data import timing.** A one-shot SQLite → Postgres script must run against
+   a stopped bot. Note the target schema differs deliberately — UUID keys,
+   `status` instead of the `-1` sentinel — so it is a transformation, not a
+   copy.
+7. **`TELEGRAM_BOT_API_URL` is only half honored.** ex_gram sends API calls to
+   it, but file downloads still build a public-API URL through
+   `ExGram.File.file_url/2`, and the local server's downloaded-file cleanup has
+   no equivalent yet. Anyone switching to a local Bot API server must finish
+   this.
+8. **Video notes are silently ignored** in private chats, because the ffmpeg
+   conversion step is outside the first slice. Whoever picks up that slice
+   should decide whether an unsupported media type deserves a reply.
+9. **The `req` override is load-bearing.** `{:req, "~> 0.7", override: true}`
+   keeps a HIGH CVE out of the tree while still using ex_gram. Do not "clean it
+   up". Remove it only when ex_gram widens its constraint, and re-run the
+   adapter smoke test when you do.
 
-Defects in the source that the target should fix rather than reproduce — non-atomic balance
-updates, the non-unique payment charge ID, the `-1` sentinel in the transcription log, the
-unused `transcription_time` argument, the never-cleared warning latch — are catalogued in
-[`REPLATFORM_ANALYSIS.md`](REPLATFORM_ANALYSIS.md) section 5.
+Defects in the source that the target should fix rather than reproduce are
+catalogued in [`REPLATFORM_ANALYSIS.md`](REPLATFORM_ANALYSIS.md) section 5.
+D1 (negative balances) and the `-1` sentinel are fixed; D2 is the next slice;
+D6 was found while implementing the first slice and is recorded in section 16.
 
 ## Continuing from here
 
@@ -274,6 +299,6 @@ project instructions and skills load as context, and run:
 /next-slice
 ```
 
-It reads this handoff and the analysis, implements the first vertical slice end
+It reads this handoff and the analysis, implements the next unfinished slice end
 to end, verifies it, and commits. Run it again for each following slice, or name
 one explicitly with `/next-slice <slice>`.
