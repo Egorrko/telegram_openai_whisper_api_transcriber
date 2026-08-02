@@ -102,6 +102,19 @@ defmodule TelegramVoiceTranscriberAsh.Bot do
     context
   end
 
+  # Last, so it cannot swallow anything above it — the position the source's
+  # catch-all text handler had in its own router order. ex_gram reports an
+  # undeclared command with a string name, where a declared one is an atom;
+  # both are just text to the user, and the source answered both.
+  def handle({:text, _text, %{chat: %{type: "private"}}}, context) do
+    answer(context, Messages.unknown_command())
+  end
+
+  def handle({:command, command, %{chat: %{type: "private"}}}, context)
+      when is_binary(command) do
+    answer(context, Messages.unknown_command())
+  end
+
   def handle(_message, context), do: context
 
   defp run(message, media, context) do

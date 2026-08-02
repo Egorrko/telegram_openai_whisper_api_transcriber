@@ -1086,6 +1086,17 @@ the project's own instructions.
 
 Containers, the image and the network created for this were removed afterwards.
 
+### Slice 6 — the unknown-command reply (done)
+
+Scenario 3.7's last line, deferred in slice 1 as "forwarding is out of scope"
+and no longer out of scope. Plain text in a private chat now gets
+`UNKNOWN_COMMAND_MESSAGE`, which exists so that someone replying to a forwarded
+transcription learns their reply will not reach the person who recorded it.
+
+An undeclared command counts as text, as it did in the source: ex_gram reports
+a declared command with an atom name and an undeclared one with a string, and
+both clauses answer. Verified through the real dispatcher.
+
 ## 17. What is left
 
 Everything in sections 1-10 that the source does is now implemented, with one

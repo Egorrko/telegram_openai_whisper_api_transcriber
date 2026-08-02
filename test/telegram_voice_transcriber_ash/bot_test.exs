@@ -99,6 +99,20 @@ defmodule TelegramVoiceTranscriberAsh.BotTest do
     assert Metering.get_subscriber!(Identity.hash(@telegram_user_id))
   end
 
+  test "plain text in a private chat explains that the bot is not the sender", %{bot_name: bot} do
+    ExGram.Test.push_update(bot, update(message: message(text: "спасибо!")))
+
+    assert [text] = texts()
+    assert text =~ "Ответ не будет доставлен собеседнику"
+  end
+
+  test "an unknown command is answered the same way", %{bot_name: bot} do
+    ExGram.Test.push_update(bot, update(message: message(text: "/nope")))
+
+    assert [text] = texts()
+    assert text =~ "Полезные команды"
+  end
+
   test "/payment carries its argument through to the invoice", %{bot_name: bot} do
     ExGram.Test.push_update(bot, update(message: message(text: "/payment 42")))
 

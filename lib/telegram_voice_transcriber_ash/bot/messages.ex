@@ -66,6 +66,23 @@ defmodule TelegramVoiceTranscriberAsh.Bot.Messages do
     """
   end
 
+  @doc """
+  Answer to plain text in a private chat. It exists for one situation: someone
+  who received a forwarded transcription replies to the bot, believing they are
+  answering the person who recorded it.
+  """
+  def unknown_command do
+    """
+
+    🤖 Ты отвечаешь боту.
+    Ответ не будет доставлен собеседнику. Перейди в чат с ним, чтобы ответить.
+
+    Полезные команды:
+    /stats - проверить, сколько минут осталось.
+    /payment N - купить дополнительные минуты.
+    """
+  end
+
   def paysupport do
     """
 
