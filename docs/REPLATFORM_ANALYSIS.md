@@ -907,3 +907,61 @@ with a unique `charge_id` and an idempotent `:credit`, `/payment N`,
 `/paysupport`, and the `pre_checkout_query` answer. It is the only remaining
 path that touches the ledger, and it closes defect D2. Group transcription
 (3.4), forwarding (3.5) and video notes are each smaller and independent.
+
+### Slice 2 — buy minutes with Telegram Stars (done)
+
+Scenario 3.6, complete: `/payment N`, the Stars invoice, the pre-checkout
+answer, the credit on `successful_payment`, and `/paysupport`.
+
+**What shipped**
+
+| Layer | Modules |
+|---|---|
+| Domain | `Metering.Payment` — `:credit` (idempotent, transactional), `:record`, `:by_charge_id`; `Subscriber.:credit_seconds` |
+| Migration | `priv/repo/migrations/*_add_stars_payments.exs` — unique index on `charge_id` |
+| Bot | `Bot.Payments`, four new clauses in `Bot`, three new messages in `Bot.Messages` |
+| Config | `CURRENCY_RATE` and `SUPPORT_USERNAME` are now read |
+
+**Defects fixed**
+
+- **D2 — a charge could be credited twice.** `charge_id` is unique, and
+  `:credit` returns the existing purchase instead of crediting again, so a
+  redelivered `successful_payment` is harmless. The user is still confirmed, as
+  the source did.
+- **D2, the other direction — payments lost while the bot was down.** The
+  source passed `drop_pending_updates=True`; ex_gram's poller calls
+  `delete_webhook` without it, so Telegram redelivers what it buffered. That is
+  only safe because the credit is idempotent — the two halves of D2 had to be
+  fixed together. Nothing to configure; the default is now correct.
+- **D5 — the warning latch survived a purchase.** `:credit_seconds` clears
+  `warned_at`, so a user who tops up gets warned again when the new balance
+  runs low.
+
+**Deviation from the plan**
+
+`Payment` carries a `seconds_credited` column that the analysis's model did
+not list. `CURRENCY_RATE` is runtime configuration; without recording what was
+actually granted, a rate change makes purchase history unreadable, and it
+cannot be reconstructed afterwards.
+
+**Kept as-is**
+
+The pre-checkout query is still answered `ok: true` unconditionally. There is
+nothing to validate: the amount is fixed by the invoice the bot itself sent,
+and Telegram allows ten seconds to answer.
+
+**Verification**
+
+| Step | Result |
+|---|---|
+| `mix format`, `mix compile --warnings-as-errors` | passed |
+| `mix test` | passed, 69/69 |
+| `mix ash.migrate` | passed |
+| Dev server, `/` and `/admin` | passed, 200 |
+| Routing through the real ex_gram dispatcher — `/start`, `/stats`, `/payment 42`, pre-checkout, `successful_payment`, and a voice message end to end | passed |
+| Live round trip against real Telegram Stars | **not verified** — no credentials, and Stars purchases cannot be exercised without a real bot and a real payer |
+
+**Next slice.** Group transcription (scenario 3.4): the reply-mention path in
+any group and the automatic path in `ALLOWED_CHAT_IDS` chats, including the
+`-(1_000_000_000_000 + id)` chat-ID transformation. After that, forwarding to
+the operator (3.5) and video notes with the ffmpeg step.

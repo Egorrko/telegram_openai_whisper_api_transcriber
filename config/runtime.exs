@@ -38,6 +38,8 @@ if config_env() != :test do
     telegram_token: System.get_env("TELEGRAM_TOKEN"),
     available_seconds: minutes.("AVAILABLE_MINUTES", "30"),
     left_warning_seconds: minutes.("LEFT_WARNING_MINUTES", "10"),
+    currency_rate_seconds: minutes.("CURRENCY_RATE", "10"),
+    support_username: System.get_env("SUPPORT_USERNAME"),
     max_retries: String.to_integer(System.get_env("MAX_RETRIES") || "3"),
     retry_delay_ms: String.to_integer(System.get_env("RETRY_DELAY") || "1") * 1000,
     transcription_engine: System.get_env("TRANSCRIPTION_ENGINE") || "gemini-3.5-flash-lite",

@@ -16,12 +16,19 @@ defmodule TelegramVoiceTranscriberAsh.Metering do
       define :get_subscriber, action: :read, get_by: [:hashed_user_id]
       define :reserve, args: [:hashed_user_id, :seconds]
       define :debit, args: [:seconds]
+      define :credit_seconds, args: [:seconds]
       define :mark_warned
       define :apply_free_reset
     end
 
     resource TelegramVoiceTranscriberAsh.Metering.TranscriptionLog do
       define :record_transcription, action: :record
+    end
+
+    resource TelegramVoiceTranscriberAsh.Metering.Payment do
+      define :credit_payment, action: :credit, args: [:hashed_user_id, :charge_id, :stars]
+      define :record_payment, action: :record
+      define :payment_by_charge_id, action: :by_charge_id, args: [:charge_id]
     end
   end
 end

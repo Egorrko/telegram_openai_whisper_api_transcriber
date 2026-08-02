@@ -2,10 +2,10 @@ defmodule TelegramVoiceTranscriberAsh.Bot do
   @moduledoc """
   The Telegram front end. Replaces the source's aiogram routers.
 
-  This slice covers the private-chat path only: a voice message or audio file
-  is transcribed, `/start` explains the product and `/stats` reports the
-  balance. Group transcription, reply-mentions, forwarding to the operator,
-  Stars payments and video notes are later slices.
+  Covers the private-chat path: a voice message or audio file is transcribed,
+  `/start` explains the product, `/stats` reports the balance, and `/payment N`
+  buys minutes with Telegram Stars. Group transcription, reply-mentions,
+  forwarding to the operator and video notes are later slices.
   """
 
   use ExGram.Bot,
@@ -14,11 +14,14 @@ defmodule TelegramVoiceTranscriberAsh.Bot do
 
   alias TelegramVoiceTranscriberAsh.Bot.Identity
   alias TelegramVoiceTranscriberAsh.Bot.Messages
+  alias TelegramVoiceTranscriberAsh.Bot.Payments
   alias TelegramVoiceTranscriberAsh.Bot.Pipeline
   alias TelegramVoiceTranscriberAsh.Metering
 
   command("start", description: "Что умеет бот")
   command("stats", description: "Сколько минут распознавания осталось")
+  command("payment", description: "Купить минуты распознавания за звёзды")
+  command("paysupport", description: "Проблемы с оплатой")
 
   @impl ExGram.Handler
   def handle({:command, :start, _message}, context) do
@@ -32,6 +35,28 @@ defmodule TelegramVoiceTranscriberAsh.Bot do
       |> Metering.find_or_register!()
 
     answer(context, Messages.stats(subscriber))
+  end
+
+  def handle({:command, :payment, message}, context) do
+    Payments.invoice(message, message.text)
+    context
+  end
+
+  def handle({:command, :paysupport, message}, context) do
+    Payments.support(message)
+    context
+  end
+
+  # Telegram asks for confirmation before charging; ex_gram surfaces it as a
+  # bare update because it has no dedicated clause for pre-checkout queries.
+  def handle({:update, %{pre_checkout_query: %{} = query}}, context) do
+    Payments.confirm_checkout(query)
+    context
+  end
+
+  def handle({:message, %{successful_payment: %{} = payment} = message}, context) do
+    Payments.credit(message, payment)
+    context
   end
 
   def handle({:message, %{chat: %{type: "private"}} = message}, context) do

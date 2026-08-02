@@ -66,6 +66,27 @@ defmodule TelegramVoiceTranscriberAsh.Bot.Messages do
     """
   end
 
+  def paysupport do
+    """
+
+    Если возникли проблемы с покупкой, напиши мне: #{Settings.support_username()}
+    """
+  end
+
+  def payment_successful(seconds) do
+    """
+
+    Платёж успешно проведён.
+
+    Тебе начислено #{minutes(seconds)} мин. распознавания.
+    """
+  end
+
+  @doc "Rejects `/payment` without a usable star count. Rendered as HTML."
+  def payment_usage do
+    "Пожалуйста, вызовите команду <code>/payment N</code> с количеством звезд от 1 до 2500"
+  end
+
   defp total(subscriber), do: subscriber.left_free_seconds + subscriber.left_purchased_seconds
 
   defp minutes(seconds), do: ceil(seconds / 60)

@@ -20,6 +20,12 @@ defmodule TelegramVoiceTranscriberAsh.Settings do
   @doc "Base backoff between attempts; the delay is `retry_delay_ms * attempt` (`RETRY_DELAY`)."
   def retry_delay_ms, do: get(:retry_delay_ms, 1_000)
 
+  @doc "Seconds of recognition one Telegram Star buys (`CURRENCY_RATE`)."
+  def currency_rate_seconds, do: get(:currency_rate_seconds, 10 * 60)
+
+  @doc "Contact shown by /paysupport, which Telegram requires for Stars payments."
+  def support_username, do: get(:support_username)
+
   def transcription_engine, do: get(:transcription_engine, "gemini-3.5-flash-lite")
   def fallback_transcription_engine, do: get(:fallback_transcription_engine)
 

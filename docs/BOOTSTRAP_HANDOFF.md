@@ -251,7 +251,8 @@ Bot API 10.2 rich-message gap, and the failure path — every identified risk.
 ## Open questions
 
 1. **Nothing has been verified against real Telegram or a real engine.** There
-   are no credentials in this environment — no bot token, no `GEMINI_API_KEY`.
+   are no credentials in this environment — no bot token, no `GEMINI_API_KEY`,
+   and Stars purchases additionally need a real payer.
    Everything below the network boundary is covered by tests, but Telegram's
    own acceptance of the 10.2 `blocks` payload is still unconfirmed. First
    thing to do with a token in hand: send one short voice message and one long
@@ -259,9 +260,12 @@ Bot API 10.2 rich-message gap, and the failure path — every identified risk.
 2. **Should transcription become a durable Oban job?** Unchanged, and now
    concrete: a restart mid-pipeline still strands the user on "Распознаю...".
    Recommended, but it is a behavior change, not a port.
-3. **Payment idempotency and `drop_pending_updates`.** The next slice. Fixing
-   defect D2 means a unique `charge_id`, an idempotent credit, and dropping the
-   flag. Confirm no operational reason required it.
+3. **Pending updates are no longer dropped.** Slice 2 made the Stars credit
+   idempotent on `charge_id`, and ex_gram's poller calls `delete_webhook`
+   without `drop_pending_updates`, so a payment that arrives while the bot is
+   down is delivered on restart instead of being discarded. Confirm nothing
+   operational depended on the old behavior — a long outage now replays its
+   whole backlog of voice messages, not just payments.
 4. **The four undocumented `PROXY_*` variables** are documented in
    `.env.example` but still read by no code. Confirm whether the proxy is
    needed before the first deployment.

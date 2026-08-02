@@ -3,11 +3,11 @@
 Phoenix + Ash + LiveVue replatforming target for the Django Telegram voice
 transcription bot.
 
-**Implemented so far: transcribing a voice message in a private chat, metered.**
-A user sends a voice message or audio file, the bot edits its reply in place
-into the transcript, and the audio's duration is charged against the account's
-balance. `/start` and `/stats` work. Group transcription, forwarding to the
-operator and Telegram Stars payments are not built yet.
+**Implemented so far: the private-chat product.** A user sends a voice message
+or audio file, the bot edits its reply in place into the transcript, and the
+audio's duration is charged against the account's balance. `/start`, `/stats`,
+`/payment N` (Telegram Stars) and `/paysupport` work. Group transcription,
+forwarding to the operator and video notes are not built yet.
 
 The product analysis, the slice log and the open questions live in
 [`docs/REPLATFORM_ANALYSIS.md`](docs/REPLATFORM_ANALYSIS.md) and

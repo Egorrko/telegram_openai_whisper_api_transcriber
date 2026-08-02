@@ -78,6 +78,14 @@ defmodule TelegramVoiceTranscriberAsh.Metering.Subscriber do
       change set_attribute(:warned_at, &DateTime.utc_now/0)
     end
 
+    update :credit_seconds do
+      description "R9: add purchased seconds. Clearing the latch fixes defect D5."
+      argument :seconds, :integer, allow_nil?: false, constraints: [min: 1]
+
+      change atomic_update(:left_purchased_seconds, expr(left_purchased_seconds + ^arg(:seconds)))
+      change set_attribute(:warned_at, nil)
+    end
+
     # R7: spend free seconds first, the shortfall from purchased seconds.
     #
     # Both columns are updated in one atomic statement evaluated against the
